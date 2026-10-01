@@ -10,6 +10,25 @@ class SessionManager {
     this.loginLocks = new Set();
   }
 
+  // Helper untuk membaca isi token & tanggal kadaluarsa
+  decodeJwt(token) {
+    try {
+      const base64Payload = token.split('.')[1];
+      const payload = Buffer.from(base64Payload, 'base64').toString('utf8');
+      return JSON.parse(payload);
+    } catch (e) {
+      return null;
+    }
+  }
+
+  // Cek apakah token tinggal kurang dari 5 menit sebelum kadaluarsa
+  isTokenExpiring(token) {
+    const payload = this.decodeJwt(token);
+    if (!payload || !payload.exp) return true;
+    const now = Math.floor(Date.now() / 1000);
+    return payload.exp - now < 300; // kurang dari 5 menit
+  }
+
   importCookieData(accountId, cookieJsonString) {
     try {
       let cookiesArray = typeof cookieJsonString === 'string' ? JSON.parse(cookieJsonString) : cookieJsonString;
@@ -35,39 +54,68 @@ class SessionManager {
     }
   }
 
-  // FUNGSI SAKTI: Auto Refresh Token jika 1 jam kadaluarsa
+  // =========================================================================
+  // MESIN AUTO-REFRESH 24/7 (MEMPERPANJANG TOKEN TANPA INPUT COOKIE LAGI)
+  // =========================================================================
   async refreshToken(accountId) {
     try {
       const session = this.loadSession(accountId);
-      if (!session || !session.cookies) return false;
+      if (!session || !session.cookies || !session.bearerToken) return false;
 
-      logger.info(`[Auto-Refresh] Memperbarui token kadaluarsa untuk ${accountId}...`);
+      const payload = this.decodeJwt(session.bearerToken);
+      const sessionId = payload?.sid;
 
-      const res = await axios.get('https://clerk.suno.com/v1/client?_clerk_js_version=5.0.0', {
-        headers: {
-          'Cookie': session.cookies,
-          'Origin': 'https://suno.com',
-          'Referer': 'https://suno.com/',
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-        },
-        timeout: 15000
-      });
+      logger.info(`[Auto-Pilot] Memperbarui sesi Suno secara mandiri untuk ${accountId}...`);
 
-      const client = res.data?.response;
-      if (client && client.sessions && client.sessions.length > 0) {
-        const active = client.sessions.find(s => s.status === 'active') || client.sessions[0];
-        const newToken = active.last_active_token?.jwt;
+      const headers = {
+        'Cookie': session.cookies,
+        'Origin': 'https://suno.com',
+        'Referer': 'https://suno.com/',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
+      };
 
-        if (newToken) {
-          session.bearerToken = newToken;
-          this.saveSession(accountId, session);
-          this.accountManager.updateAccount(accountId, { bearerToken: newToken, statusCookie: 'active' });
-          logger.info(`[Auto-Refresh] Token berhasil diperpanjang otomatis!`);
-          return true;
-        }
+      let newToken = null;
+
+      // Jalur 1: Minting Token Baru via Session ID Resmi Clerk
+      if (sessionId) {
+        try {
+          const res = await axios.post(
+            `https://clerk.suno.com/v1/client/sessions/${sessionId}/tokens?_clerk_js_version=5.0.0`,
+            {},
+            { headers, timeout: 15000 }
+          );
+          newToken = res.data?.jwt || res.data?.response?.jwt;
+        } catch (e) {}
+      }
+
+      // Jalur 2: Ambil Token Aktif via Client State
+      if (!newToken) {
+        try {
+          const res = await axios.get('https://clerk.suno.com/v1/client?_clerk_js_version=5.0.0', {
+            headers,
+            timeout: 15000
+          });
+          const client = res.data?.response;
+          if (client && client.sessions && client.sessions.length > 0) {
+            const active = client.sessions.find(s => s.status === 'active') || client.sessions[0];
+            newToken = active.last_active_token?.jwt;
+          }
+        } catch (e) {}
+      }
+
+      if (newToken) {
+        session.bearerToken = newToken;
+        this.saveSession(accountId, session);
+        this.accountManager.updateAccount(accountId, {
+          bearerToken: newToken,
+          statusCookie: 'active',
+          lastLogin: new Date().toISOString()
+        });
+        logger.info(`[Auto-Pilot SUCCESS] Token berhasil diperpanjang 1 jam ke depan!`);
+        return true;
       }
     } catch (err) {
-      logger.warn(`[Auto-Refresh] Tidak dapat memperpanjang otomatis: ${err.message}`);
+      logger.warn(`[Auto-Pilot Warning] Gagal refresh: ${err.message}`);
     }
     return false;
   }
