@@ -81,6 +81,41 @@ function loadSession(accountId) {
 // ==========================================
 const SUNO_API_BASE = 'https://studio-api.prod.suno.com';
 
+async function keepAliveSession(session, accountId = 'acc_main') {
+  if (!session || !session.clientToken) return session;
+  try {
+    let sid = session.sessionId;
+    if (!sid && session.bearerToken) {
+      try {
+        const payload = JSON.parse(Buffer.from(session.bearerToken.split('.')[1], 'base64').toString('utf-8'));
+        sid = payload.sid;
+      } catch (e) {}
+    }
+    if (!sid) {
+      const cRes = await axios.get('https://auth.suno.com/v1/client?__clerk_api_version=2025-11-10', {
+        headers: { 'Authorization': session.clientToken, 'Cookie': session.cookies || '' },
+        timeout: 10000
+      });
+      sid = cRes.data?.response?.last_active_session_id || cRes.data?.client?.last_active_session_id;
+    }
+    if (sid) {
+      const tRes = await axios.post(`https://auth.suno.com/v1/client/sessions/${sid}/tokens`, {}, {
+        headers: { 'Authorization': session.clientToken, 'Cookie': session.cookies || '' },
+        timeout: 10000
+      });
+      if (tRes.data?.jwt) {
+        session.bearerToken = tRes.data.jwt;
+        session.sessionId = sid;
+        saveSession(accountId, session);
+        logger.info('[Auth] Sesi token Clerk diperbarui otomatis');
+      }
+    }
+  } catch (err) {
+    logger.warn(`[Auth] Gagal auto-refresh token: ${err.message}`);
+  }
+  return session;
+}
+
 function getAxiosConfig(session) {
   return {
     headers: {
@@ -97,6 +132,7 @@ function getAxiosConfig(session) {
 }
 
 async function checkCreditsAPI(session) {
+  await keepAliveSession(session);
   const config = getAxiosConfig(session);
   const res = await axios.get(`${SUNO_API_BASE}/api/billing/info/`, config);
   return res.data?.total_credits_left !== undefined ? res.data.total_credits_left : (res.data?.credits_left || 0);
@@ -159,11 +195,11 @@ app.get('/api/v1/audio/:audioId', async (req, res) => {
   try {
     const accounts = getAccounts();
     const session = accounts.length ? loadSession(accounts[0].id) : null;
-    let streamUrl = `https://cdn1.suno.ai/${audioId}.mp3`;
-    let cookieHeader = session ? session.cookies : '';
+    let streamUrl = `https://audiopipe.suno.ai/track/${audioId}.mp3`;
 
     if (session) {
       try {
+        await keepAliveSession(session, accounts[0].id);
         const config = getAxiosConfig(session);
         const feedRes = await axios.get(`${SUNO_API_BASE}/api/feed/?ids=${audioId}`, config);
         if (feedRes.data && feedRes.data[0] && feedRes.data[0].audio_url) {
@@ -172,28 +208,28 @@ app.get('/api/v1/audio/:audioId', async (req, res) => {
       } catch (e) {}
     }
 
-    const audioRes = await axios({
-      method: 'GET',
-      url: streamUrl,
-      responseType: 'stream',
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        'Referer': 'https://suno.com/',
-        'Cookie': cookieHeader
-      },
-      timeout: 45000
-    });
-
-    if (download === 'true') {
-      const safeTitle = (title || 'suno_music').replace(/[^a-zA-Z0-9_\-\s]/g, '').trim();
-      res.setHeader('Content-Disposition', `attachment; filename="${safeTitle || 'song'}.mp3"`);
-    } else {
-      res.setHeader('Content-Disposition', 'inline');
+    if (download !== 'true') {
+      return res.redirect(streamUrl);
     }
 
-    res.setHeader('Content-Type', 'audio/mpeg');
-    res.setHeader('Accept-Ranges', 'bytes');
-    return audioRes.data.pipe(res);
+    const safeTitle = (title || 'suno_music').replace(/[^a-zA-Z0-9_\-\s]/g, '').trim();
+    try {
+      const audioRes = await axios({
+        method: 'GET',
+        url: streamUrl,
+        responseType: 'stream',
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+          'Referer': 'https://suno.com/'
+        },
+        timeout: 45000
+      });
+      res.setHeader('Content-Disposition', `attachment; filename="${safeTitle || 'song'}.mp3"`);
+      res.setHeader('Content-Type', 'audio/mpeg');
+      return audioRes.data.pipe(res);
+    } catch (streamErr) {
+      return res.redirect(streamUrl);
+    }
   } catch (err) {
     res.status(404).send('Audio tidak ditemukan atau sedang diproses');
   }
@@ -234,11 +270,20 @@ io.on('connection', async (socket) => {
         throw new Error('Cookie __session tidak ditemukan di dalam JSON!');
       }
 
+      const clientCookie = cookiesArray.find(c => c.name === '__client' || c.name.startsWith('__client_'));
+      const clientToken = clientCookie ? clientCookie.value : null;
+
+      let sessionId = null;
+      try {
+        const payload = JSON.parse(Buffer.from(sessionCookie.value.split('.')[1], 'base64').toString('utf-8'));
+        sessionId = payload.sid || null;
+      } catch (e) {}
+
       const bearerToken = sessionCookie.value;
       const cookiesHeader = cookiesArray.map(c => `${c.name}=${c.value}`).join('; ');
 
       const accountId = 'acc_main';
-      const sessionData = { bearerToken, cookies: cookiesHeader };
+      const sessionData = { bearerToken, clientToken, sessionId, cookies: cookiesHeader };
 
       // TES VALIDITAS TOKEN SEBELUM SIMPAN!
       let credits = 0;
@@ -271,6 +316,19 @@ io.on('connection', async (socket) => {
     } catch (err) {
       if (callback) callback({ success: false, error: err.message });
     }
+  });
+
+  // Background Auto-Refresh Setiap 30 Menit Agar Tidak Pernah Kedaluwarsa
+  cron.schedule('*/30 * * * *', async () => {
+    try {
+      const accounts = getAccounts();
+      if (accounts.length > 0) {
+        const session = loadSession(accounts[0].id);
+        if (session) {
+          await keepAliveSession(session, accounts[0].id);
+        }
+      }
+    } catch (e) {}
   });
 
   // BIKIN LAGU RESMI
@@ -348,12 +406,19 @@ io.on('connection', async (socket) => {
       const session = loadSession(accounts[0].id);
       const credits = await checkCreditsAPI(session);
       accounts[0].creditsLeft = credits;
+      accounts[0].statusCookie = 'active';
       saveAccounts(accounts);
       io.emit('accounts:updated', accounts);
       io.emit('account:credits', { id: accounts[0].id, credits });
       io.emit('notification', { type: 'info', message: `Saldo Saat Ini: ${credits} Kredit` });
       if (callback) callback({ success: true, credits });
     } catch (e) {
+      const accounts = getAccounts();
+      if (accounts.length > 0) {
+        accounts[0].statusCookie = 'expired';
+        saveAccounts(accounts);
+        io.emit('accounts:updated', accounts);
+      }
       if (callback) callback({ success: false, error: e.message });
     }
   });
