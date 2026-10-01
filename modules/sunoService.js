@@ -109,7 +109,6 @@ class SunoService {
     }
   }
 
-  // PEMBUATAN LAGU SUPER-ROBUST (AXIOS + BRIGHT DATA AUTO-UNLOCK)
   async generateSong(accountIdOrNull, options = {}) {
     const taskId = uuidv4();
     const accountId = accountIdOrNull || this.accountManager.getOptimalAccount()?.id;
@@ -136,45 +135,54 @@ class SunoService {
 
     let clips = null;
 
-    // JALUR 1: Coba Axios Cepat Dulu
+    // JALUR 1: Coba Axios Cepat
     try {
-      logger.info(`Mencoba generate via Axios cepat (${selectedMv})...`);
       const config = this.getAxiosConfig(account, session);
       const res = await axios.post(`${this.apiBase}/api/generate/v2/`, payload, config);
       if (res.data && res.data.clips) clips = res.data.clips;
     } catch (errAxios) {
-      const errDetail = JSON.stringify(errAxios.response?.data || errAxios.message);
-      logger.warn(`Axios gagal karena keamanan Suno: ${errDetail}. Mengalihkan ke Superkomputer Bright Data...`);
+      logger.warn(`Axios dicegat Suno. Mengalihkan ke Superkomputer Bright Data (Bypass Turnstile)...`);
     }
 
-    // JALUR 2: Jika Dicegat Suno ("verify your request" / Cloudflare), Gunakan Browser Bright Data!
+    // JALUR 2: Bright Data Unlocker (Bypass Turnstile & Tanpa Tabrakan Cookie)
     if (!clips) {
       let browser = null;
       try {
         const wsUrl = this.getBrightDataWS();
-        logger.info(`[Bright Data Unlocker] Membuka remote browser via ${wsUrl.slice(0, 30)}...`);
+        logger.info(`[Bright Data Unlocker] Menghubungkan ke ${wsUrl.slice(0, 30)}...`);
         browser = await puppeteer.connect({ browserWSEndpoint: wsUrl });
         const page = await browser.newPage();
 
-        const cookieObjects = session.cookies.split('; ').map(c => {
+        // FILTER: Hindari tabrakan dengan __session milik Bright Data
+        const safeCookies = session.cookies.split('; ').map(c => {
           const [name, ...val] = c.split('=');
           return { name: name.trim(), value: val.join('=').trim(), domain: '.suno.com', path: '/' };
-        });
-        await page.setCookie(...cookieObjects);
+        }).filter(c => c.name !== '__session'); // Hilangkan __session dari CDP agar tidak bentrok
 
-        // Buka Suno Create di browser asli agar Cloudflare Turnstile lolos otomatis
+        if (safeCookies.length) {
+          await page.setCookie(...safeCookies);
+        }
+
         await page.goto('https://suno.com/create', { waitUntil: 'domcontentloaded', timeout: 35000 });
+
+        // Suntikkan __session Suno lewat DOM (Aman dari bentrok CDP)
+        await page.evaluate((tok) => {
+          try {
+            document.cookie = `__session=${tok}; domain=.suno.com; path=/; secure`;
+          } catch(e) {}
+        }, session.bearerToken);
+
         await page.waitForFunction(() => window.Clerk && window.Clerk.isReady, { timeout: 25000 });
 
-        // Eksekusi generate dari dalam konteks browser yang sudah sah
-        const genResult = await page.evaluate(async (pl) => {
+        // Eksekusi generate resmi dari dalam browser
+        const genResult = await page.evaluate(async (pl, token) => {
           try {
-            const token = await window.Clerk.session.getToken();
+            const authToken = (window.Clerk && window.Clerk.session) ? await window.Clerk.session.getToken() : token;
             const response = await fetch('https://studio-api.prod.suno.com/api/generate/v2/', {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}`
+                'Authorization': `Bearer ${authToken}`
               },
               body: JSON.stringify(pl)
             });
@@ -182,13 +190,13 @@ class SunoService {
           } catch (e) {
             return { error: e.message };
           }
-        }, payload);
+        }, payload, session.bearerToken);
 
         if (genResult && genResult.clips) {
           clips = genResult.clips;
-          logger.info(`[Bright Data SUCCESS] Lagu berhasil di-generate melewati Captcha Turnstile!`);
+          logger.info(`[Bright Data SUCCESS] 2 Lagu berhasil dibuat melewati Turnstile!`);
         } else {
-          throw new Error(genResult.detail || genResult.error || 'Gagal generate via remote browser');
+          throw new Error(genResult.detail || genResult.error || 'Respon klip tidak ditemukan');
         }
       } catch (errBD) {
         logger.error(`Bright Data Runner Error: ${errBD.message}`);
@@ -217,7 +225,7 @@ class SunoService {
       return { taskId, clipIds, status: 'processing', accountUsed: accountId };
     }
 
-    throw new Error('Gagal mendapatkan respon klip dari Suno');
+    throw new Error('Gagal memproses lagu');
   }
 
   async pollTaskStatus(taskId, accountId, clipIds) {
