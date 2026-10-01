@@ -1,27 +1,34 @@
 FROM ghcr.io/puppeteer/puppeteer:22.6.0
 
-ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
-ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/google-chrome-stable
-ENV NODE_ENV=production
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
+    PUPPETEER_EXECUTABLE_PATH=/usr/bin/google-chrome-stable \
+    NODE_ENV=production \
+    NPM_CONFIG_UPDATE_NOTIFIER=false
+
+# Beralih ke root untuk install dependencies
+USER root
 
 WORKDIR /app
 
-# Copy package files
-COPY package*.json ./
+# Copy package files dulu (layer cache)
+COPY package.json ./
 
-# Use npm install (bukan npm ci) karena package-lock.json mungkin belum ada
-# --omit=dev = skip devDependencies (pengganti --only=production yang sudah deprecated)
-RUN npm install --omit=dev
+# Install dependencies sebagai root
+RUN npm install --omit=dev --no-package-lock && \
+    npm cache clean --force
 
-# Copy seluruh source code
+# Copy sisa source code
 COPY . .
 
-# Buat folder sessions & data
-RUN mkdir -p sessions data && \
+# Buat folder runtime + set ownership ke pptruser
+RUN mkdir -p sessions data logs && \
     echo '[]' > data/accounts.json && \
-    echo '[]' > data/queue.json
+    echo '[]' > data/queue.json && \
+    chown -R pptruser:pptruser /app
+
+# Kembali ke user non-root (best practice keamanan)
+USER pptruser
 
 EXPOSE 3000
 
-USER root
 CMD ["node", "server.js"]
