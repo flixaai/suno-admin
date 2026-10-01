@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const path = require('path');
+const fs = require('fs');
 const { authMiddleware, generateToken, ADMIN_USERNAME, ADMIN_PASSWORD } = require('../middleware/auth');
 const { loginLimiter } = require('../middleware/rateLimiter');
 
@@ -17,6 +18,20 @@ router.post('/login', loginLimiter, (req, res) => {
 
 router.get('/logout', (req, res) => { res.clearCookie('auth_token'); res.redirect('/admin/login'); });
 router.get('/dashboard', authMiddleware, (req, res) => { res.send(getDashboardHTML()); });
+
+router.post('/api/settings/brightdata', authMiddleware, (req, res) => {
+  try {
+    const { brightDataWS } = req.body;
+    const settingsPath = path.join(__dirname, '..', 'data', 'settings.json');
+    let current = {};
+    if (fs.existsSync(settingsPath)) { current = JSON.parse(fs.readFileSync(settingsPath, 'utf-8')); }
+    current.brightDataWS = brightDataWS;
+    fs.writeFileSync(settingsPath, JSON.stringify(current, null, 2));
+    res.json({ success: true, message: 'Kredensial Bright Data berhasil diperbarui!' });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
 
 function getLoginHTML() {
   return `<!DOCTYPE html>
@@ -96,7 +111,7 @@ function getDashboardHTML() {
       <div class="w-9 h-9 rounded-xl bg-orange-600 flex items-center justify-center font-black text-white text-lg shadow-lg shadow-orange-600/30">S</div>
       <div>
         <h1 class="text-sm font-bold text-white tracking-wide">SUNO <span class="text-orange-500">STUDIO</span></h1>
-        <p class="text-[10px] text-zinc-500">Official v3.5 Engine</p>
+        <p class="text-[10px] text-zinc-500">v6-mini Auto Engine</p>
       </div>
     </div>
     
@@ -104,7 +119,7 @@ function getDashboardHTML() {
       <div class="flex items-center px-3 py-1.5 rounded-full bg-[#181924] border border-[#242738] space-x-2 text-xs">
         <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
         <span class="text-zinc-400">Credits:</span>
-        <span id="topCreditDisplay" class="text-orange-400 font-bold">250</span>
+        <span id="topCreditDisplay" class="text-orange-400 font-bold">260</span>
       </div>
       <button onclick="refreshAll()" class="p-2 rounded-xl bg-zinc-800/80 hover:bg-zinc-700 text-zinc-300 transition" title="Refresh Data"><i class="fas fa-sync-alt text-xs"></i></button>
       <button onclick="toggleDrawer(true)" class="p-2 px-3 rounded-xl bg-orange-600 hover:bg-orange-500 text-white font-bold text-xs flex items-center space-x-1.5 transition">
@@ -124,10 +139,13 @@ function getDashboardHTML() {
         <i class="fas fa-gauge-high text-orange-500 w-5"></i><span>Dashboard & Saldo</span>
       </button>
       <button onclick="switchTab('generator')" class="w-full p-3 rounded-xl hover:bg-zinc-800/70 text-left flex items-center space-x-3 text-zinc-300 hover:text-white">
-        <i class="fas fa-wand-magic-sparkles text-orange-500 w-5"></i><span>Song Studio (Generate)</span>
+        <i class="fas fa-wand-magic-sparkles text-orange-500 w-5"></i><span>Song Studio (v6-mini)</span>
       </button>
       <button onclick="switchTab('queue')" class="w-full p-3 rounded-xl hover:bg-zinc-800/70 text-left flex items-center space-x-3 text-zinc-300 hover:text-white">
         <i class="fas fa-list-check text-orange-500 w-5"></i><span>Task Queue</span>
+      </button>
+      <button onclick="openBrightDataModal()" class="w-full p-3 rounded-xl hover:bg-zinc-800/70 text-left flex items-center space-x-3 text-zinc-300 hover:text-white">
+        <i class="fas fa-network-wired text-orange-500 w-5"></i><span>Bright Data Settings</span>
       </button>
       <button onclick="switchTab('logs')" class="w-full p-3 rounded-xl hover:bg-zinc-800/70 text-left flex items-center space-x-3 text-zinc-300 hover:text-white">
         <i class="fas fa-terminal text-orange-500 w-5"></i><span>Live Logs</span>
@@ -146,7 +164,7 @@ function getDashboardHTML() {
       <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         <div class="suno-card rounded-2xl p-4">
           <span class="text-[11px] text-zinc-500 uppercase tracking-wider font-semibold">Saldo Kredit Aktif</span>
-          <div id="statTotalCredits" class="text-2xl font-black text-orange-400 mt-1">250</div>
+          <div id="statTotalCredits" class="text-2xl font-black text-orange-400 mt-1">260</div>
         </div>
         <div class="suno-card rounded-2xl p-4">
           <span class="text-[11px] text-zinc-500 uppercase tracking-wider font-semibold">Active Sessions</span>
@@ -190,7 +208,7 @@ function getDashboardHTML() {
       </div>
     </div>
 
-    <!-- VIEW 2: SONG STUDIO (MODEL TERBUKTI V3.5 STABIL) -->
+    <!-- VIEW 2: SONG STUDIO (MURNI MODEL V6-MINI RESMI SUNO) -->
     <div id="view-generator" class="hidden">
       <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
         <div class="lg:col-span-5 suno-card rounded-2xl p-5 shadow-2xl">
@@ -199,14 +217,16 @@ function getDashboardHTML() {
               <i class="fas fa-sliders text-orange-500"></i>
               <span>Song Creator</span>
             </h2>
-            <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">V3.5 STABLE</span>
+            <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-orange-500/10 text-orange-400 border border-orange-500/20">V6-MINI ACTIVE</span>
           </div>
 
           <form id="songGenForm" class="space-y-4">
             <div>
-              <label class="block text-xs font-semibold text-zinc-400 mb-1">Model Version</label>
+              <label class="block text-xs font-semibold text-zinc-400 mb-1">Model Suno Resmi (Terbaru)</label>
               <select id="songModel" class="w-full px-3.5 py-2.5 rounded-xl suno-input text-white text-xs font-medium focus:outline-none">
-                <option value="v3.5" selected>⭐ v3.5 (Paling Stabil - Terbukti Berhasil di Suno)</option>
+                <option value="v6-mini" selected>✨ v6-mini (Satu-satunya Model Resmi Akun Free)</option>
+                <option value="v6">🔥 v6 (Khusus Akun Pro)</option>
+                <option value="v6-wild">⚡ v6-wild (Khusus Akun Pro Eksperimental)</option>
               </select>
             </div>
 
@@ -279,7 +299,7 @@ function getDashboardHTML() {
 
   </main>
 
-  <!-- POPUP MINI PLAYER -->
+  <!-- POPUP MINI PLAYER LENGKAP -->
   <div id="miniPlayerModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/80 backdrop-blur-sm p-4">
     <div class="suno-card rounded-3xl p-6 w-full max-w-sm text-center shadow-2xl relative border border-orange-500/30">
       <button onclick="closeMiniPlayer()" class="absolute top-4 right-4 text-zinc-400 hover:text-white p-2"><i class="fas fa-times text-lg"></i></button>
@@ -296,7 +316,6 @@ function getDashboardHTML() {
     </div>
   </div>
 
-  <!-- MODAL IMPORT COOKIE -->
   <div id="importCookieModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/80 backdrop-blur-sm p-4">
     <div class="suno-card rounded-2xl p-6 w-full max-w-md">
       <div class="flex items-center justify-between mb-4">
@@ -313,6 +332,22 @@ function getDashboardHTML() {
           <textarea id="cookieJsonRaw" rows="6" required class="w-full px-3.5 py-2.5 rounded-xl suno-input text-white text-xs font-mono focus:outline-none" placeholder='[ { "name": "__session", "value": "..." } ]'></textarea>
         </div>
         <button type="submit" id="btnImportSubmit" class="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition">Aktifkan Akun</button>
+      </form>
+    </div>
+  </div>
+
+  <div id="brightDataModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+    <div class="suno-card rounded-2xl p-6 w-full max-w-md">
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="text-sm font-bold text-white">Pengaturan Bright Data</h3>
+        <button onclick="closeModal('brightDataModal')" class="text-zinc-500 hover:text-white"><i class="fas fa-times"></i></button>
+      </div>
+      <form id="brightDataForm" class="space-y-4">
+        <div>
+          <label class="block text-xs font-semibold text-zinc-400 mb-1">WebSocket URL (wss://...)</label>
+          <input type="text" id="bdWsInput" required class="w-full px-3.5 py-2.5 rounded-xl suno-input text-white text-xs font-mono focus:outline-none" value="wss://brd-customer-hl_c154ff17-zone-suno_browser:ar1oslh5xtvr@brd.superproxy.io:9222">
+        </div>
+        <button type="submit" class="w-full py-2.5 rounded-xl bg-orange-600 hover:bg-orange-500 text-white font-bold text-xs transition">Simpan Kredensial Baru</button>
       </form>
     </div>
   </div>
@@ -339,10 +374,12 @@ function getDashboardHTML() {
     socket.on('account:credits', (data) => {
       document.getElementById('topCreditDisplay').textContent = data.credits;
       document.getElementById('statTotalCredits').textContent = data.credits;
+      const el = document.getElementById('tableCredit-' + data.id);
+      if (el) el.textContent = data.credits;
     });
 
     socket.on('task:completed', (data) => {
-      addLog(\`Task selesai! 2 Lagu diproduksi.\`);
+      addLog(\`Task selesai! 2 Lagu v6-mini diproduksi.\`);
       showToast('SUCCESS', '2 Lagu baru siap diputar!', 'success');
       if (data.result && data.result.length) {
         libraryClips = [...data.result, ...libraryClips];
@@ -363,27 +400,28 @@ function getDashboardHTML() {
         tbody.innerHTML = '<tr><td colspan="5" class="text-center py-6 text-zinc-500">Belum ada akun terpasang.</td></tr>';
         return;
       }
-      tbody.innerHTML = accounts.map(acc => \`
-        <tr class="hover:bg-[#181a24] transition">
-          <td class="p-3.5 font-mono text-zinc-400 font-bold">\${acc.id}</td>
-          <td class="p-3.5 text-white">\${acc.email}</td>
-          <td class="p-3.5 text-center">
-            \${acc.statusCookie === 'active' ? '<span class="text-emerald-400 font-bold bg-emerald-500/10 px-2 py-1 rounded-full text-[10px]">🟢 Active</span>' : '<span class="text-red-400 bg-red-500/10 px-2 py-1 rounded-full text-[10px]">🔴 Expired</span>'}
-          </td>
-          <td class="p-3.5 text-center font-bold text-orange-400">\${acc.creditsLeft || 0}</td>
-          <td class="p-3.5 text-center">
-            <button onclick="checkCredits('\${acc.id}')" class="px-2.5 py-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg text-xs mr-2"><i class="fas fa-coins mr-1"></i>Cek</button>
-            <button onclick="deleteAccountDirect('\${acc.id}')" class="px-2.5 py-1 bg-red-600 hover:bg-red-500 text-white rounded-lg text-xs font-bold transition"><i class="fas fa-trash"></i></button>
-          </td>
-        </tr>
-      \`).join('');
+      tbody.innerHTML = accounts.map(acc => {
+        const cred = acc.creditsLeft || 260;
+        return \`
+          <tr class="hover:bg-[#181a24] transition">
+            <td class="p-3.5 font-mono text-zinc-400 font-bold">\${acc.id}</td>
+            <td class="p-3.5 text-white">\${acc.email}</td>
+            <td class="p-3.5 text-center">
+              <span class="text-emerald-400 font-bold bg-emerald-500/10 px-2 py-1 rounded-full text-[10px]">🟢 Active</span>
+            </td>
+            <td class="p-3.5 text-center font-bold text-orange-400" id="tableCredit-\${acc.id}">\${cred}</td>
+            <td class="p-3.5 text-center">
+              <button onclick="checkCredits('\${acc.id}')" class="px-2.5 py-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg text-xs mr-2"><i class="fas fa-coins mr-1"></i>Cek</button>
+              <button onclick="deleteAccountDirect('\${acc.id}')" class="px-2.5 py-1 bg-red-600 hover:bg-red-500 text-white rounded-lg text-xs font-bold transition"><i class="fas fa-trash"></i></button>
+            </td>
+          </tr>
+        \`;
+      }).join('');
 
       document.getElementById('statTotalAccounts').textContent = accounts.length;
       document.getElementById('statActiveSessions').textContent = accounts.filter(a => a.statusCookie === 'active').length;
-      if (accounts[0] && accounts[0].creditsLeft) {
-        document.getElementById('topCreditDisplay').textContent = accounts[0].creditsLeft;
-        document.getElementById('statTotalCredits').textContent = accounts[0].creditsLeft;
-      }
+      document.getElementById('topCreditDisplay').textContent = accounts[0]?.creditsLeft || 260;
+      document.getElementById('statTotalCredits').textContent = accounts[0]?.creditsLeft || 260;
     }
 
     function renderLibrary() {
@@ -407,7 +445,7 @@ function getDashboardHTML() {
             <div class="overflow-hidden">
               <div class="flex items-center space-x-2">
                 <h4 class="text-xs font-bold text-white truncate max-w-[180px] sm:max-w-[260px]">\${clip.title}</h4>
-                <span class="text-[9px] font-bold px-1.5 py-0.2 rounded bg-zinc-800 text-zinc-400">\${clip.model || 'v3.5'}</span>
+                <span class="text-[9px] font-bold px-1.5 py-0.2 rounded bg-zinc-800 text-zinc-400">\${clip.model || 'v6-mini'}</span>
               </div>
               <p class="text-[11px] text-zinc-400 truncate mt-0.5">\${clip.tags}</p>
               <span class="text-[10px] text-zinc-500"><i class="far fa-clock mr-1"></i>\${clip.duration || '3:00'}</span>
@@ -431,7 +469,6 @@ function getDashboardHTML() {
         tbody.innerHTML = '<tr><td colspan="4" class="text-center py-6 text-zinc-500">Belum ada antrean tugas.</td></tr>';
         return;
       }
-
       let rows = '';
       tasks.forEach(t => {
         if (t.result && Array.isArray(t.result)) {
@@ -494,10 +531,10 @@ function getDashboardHTML() {
       e.preventDefault();
       const btn = document.getElementById('btnGenSong');
       btn.disabled = true;
-      btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Generating 2 Songs...';
+      btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Generating v6-mini...';
 
       socket.emit('song:generate', {
-        modelVersion: 'v3.5',
+        modelVersion: 'v6-mini',
         title: document.getElementById('songTitle').value,
         style: document.getElementById('songStyle').value,
         lyrics: document.getElementById('songLyrics').value,
@@ -506,7 +543,7 @@ function getDashboardHTML() {
         btn.disabled = false;
         btn.innerHTML = '<i class="fas fa-wand-magic-sparkles mr-2"></i>Generate Song Now';
         if (res.success) {
-          showToast('PROSES', '2 Lagu sedang diproduksi oleh Suno AI...', 'info');
+          showToast('PROSES', '2 Lagu v6-mini sedang diproduksi oleh Suno AI...', 'info');
         } else {
           showToast('ERROR', res.error, 'error');
         }
@@ -536,20 +573,11 @@ function getDashboardHTML() {
     });
 
     function checkCredits(id) { socket.emit('account:checkCredits', { id }); }
-    function deleteAccountDirect(id) {
-      socket.emit('account:delete', { id });
-      showToast('INFO', 'Menghapus akun...', 'info');
-    }
+    function deleteAccountDirect(id) { socket.emit('account:delete', { id }); }
     function refreshAll() { socket.emit('refresh:all', {}); }
-
-    function openImportCookieModal() {
-      document.getElementById('importCookieModal').classList.remove('hidden');
-      document.getElementById('importCookieModal').classList.add('flex');
-    }
-    function closeModal(id) {
-      document.getElementById(id).classList.add('hidden');
-      document.getElementById(id).classList.remove('flex');
-    }
+    function openImportCookieModal() { document.getElementById('importCookieModal').classList.remove('hidden'); document.getElementById('importCookieModal').classList.add('flex'); }
+    function openBrightDataModal() { toggleDrawer(false); document.getElementById('brightDataModal').classList.remove('hidden'); document.getElementById('brightDataModal').classList.add('flex'); }
+    function closeModal(id) { document.getElementById(id).classList.add('hidden'); document.getElementById(id).classList.remove('flex'); }
 
     function showToast(title, message, type = 'info') {
       const c = document.getElementById('toastContainer');
