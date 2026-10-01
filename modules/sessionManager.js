@@ -11,19 +11,30 @@ class SessionManager {
     this.loginLocks = new Set();
   }
 
-  // Helper untuk membuat Axios client dengan Proxy Webshare
+  // Helper untuk membuat Axios client dengan Penyamaran (Stealth) Maksimal
   getAxiosClient(proxyUrl) {
     const config = {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Accept-Encoding': 'gzip, deflate, br',
         'Origin': 'https://suno.com',
         'Referer': 'https://suno.com/',
-        'Accept': '*/*',
-        'Accept-Language': 'en-US,en;q=0.9',
+        'Sec-Ch-Ua': '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"',
+        'Sec-Ch-Ua-Mobile': '?0',
+        'Sec-Ch-Ua-Platform': '"Windows"',
+        'Sec-Fetch-Dest': 'empty',
+        'Sec-Fetch-Mode': 'cors',
+        'Sec-Fetch-Site': 'cross-site',
         'Content-Type': 'application/x-www-form-urlencoded'
       },
-      timeout: 20000,
-      withCredentials: true
+      timeout: 25000,
+      withCredentials: true,
+      // Mencegah Axios error otomatis saat status bukan 200, agar kita bisa baca isi blokirannya
+      validateStatus: function (status) {
+        return status >= 200 && status < 500; 
+      }
     };
 
     if (proxyUrl) {
@@ -60,14 +71,16 @@ class SessionManager {
       let cookiesHeader = '';
 
       // 1. Inisialisasi Session Clerk (Dapatkan Cookie Client)
-      try {
-        const initRes = await client.get('https://clerk.suno.com/v1/client?_clerk_js_version=5.0.0');
-        if (initRes.headers['set-cookie']) {
-          cookiesHeader = initRes.headers['set-cookie'].map(c => c.split(';')[0]).join('; ');
-        }
-      } catch (e) {}
+      const initRes = await client.get('https://clerk.suno.com/v1/client?_clerk_js_version=5.0.0');
+      if (initRes.headers['set-cookie']) {
+        cookiesHeader = initRes.headers['set-cookie'].map(c => c.split(';')[0]).join('; ');
+      }
+      
+      if (initRes.status >= 400) {
+        throw new Error(`[Clerk Init Failed - Status ${initRes.status}] Body: ${JSON.stringify(initRes.data)}`);
+      }
 
-      // Update headers dengan Cookie jika ada
+      // Update headers dengan Cookie
       if (cookiesHeader) {
         client.defaults.headers['Cookie'] = cookiesHeader;
       }
@@ -76,15 +89,25 @@ class SessionManager {
       let authId = null;
       let isSignUp = false;
 
-      try {
-        const signInParams = new URLSearchParams();
-        signInParams.append('identifier', account.email);
+      const signInParams = new URLSearchParams();
+      signInParams.append('identifier', account.email);
 
-        const signInRes = await client.post(
-          'https://clerk.suno.com/v1/client/sign_ins?_clerk_js_version=5.0.0',
-          signInParams.toString()
-        );
+      const signInRes = await client.post(
+        'https://clerk.suno.com/v1/client/sign_ins?_clerk_js_version=5.0.0',
+        signInParams.toString()
+      );
 
+      // Cek apakah di-blokir oleh sistem keamanan Suno/Clerk
+      if (signInRes.status >= 400) {
+         const errData = signInRes.data?.errors || [];
+         const isNotFound = errData.some(e => e.code === 'form_identifier_not_found' || e.message?.includes('not found'));
+
+         if (isNotFound) {
+            isSignUp = true; // Lanjut ke proses Sign-Up
+         } else {
+            throw new Error(`[SignIn Blocked - Status ${signInRes.status}] Body: ${JSON.stringify(signInRes.data)}`);
+         }
+      } else {
         if (signInRes.headers['set-cookie']) {
           const newCookies = signInRes.headers['set-cookie'].map(c => c.split(';')[0]).join('; ');
           cookiesHeader = cookiesHeader ? `${cookiesHeader}; ${newCookies}` : newCookies;
@@ -103,19 +126,16 @@ class SessionManager {
           prepParams.append('strategy', 'email_code');
           prepParams.append('email_address_id', emailFactor.email_address_id);
 
-          await client.post(
+          const prepRes = await client.post(
             `https://clerk.suno.com/v1/client/sign_ins/${authId}/prepare_first_factor?_clerk_js_version=5.0.0`,
             prepParams.toString()
           );
+          if (prepRes.status >= 400) throw new Error(`[OTP Request Failed - Status ${prepRes.status}] Body: ${JSON.stringify(prepRes.data)}`);
         }
+      }
 
-      } catch (signInErr) {
-        // Jika Email Belum Terdaftar -> Sign-Up (Daftar Akun Baru)
-        const errData = signInErr.response?.data?.errors || [];
-        const isNotFound = errData.some(e => e.code === 'form_identifier_not_found' || e.message?.includes('not found'));
-
-        if (isNotFound) {
-          isSignUp = true;
+      // Jika Email Belum Terdaftar -> Sign-Up (Daftar Akun Baru)
+      if (isSignUp) {
           const signUpParams = new URLSearchParams();
           signUpParams.append('email_address', account.email);
 
@@ -123,6 +143,10 @@ class SessionManager {
             'https://clerk.suno.com/v1/client/sign_ups?_clerk_js_version=5.0.0',
             signUpParams.toString()
           );
+
+          if (signUpRes.status >= 400) {
+            throw new Error(`[SignUp Blocked - Status ${signUpRes.status}] Body: ${JSON.stringify(signUpRes.data)}`);
+          }
 
           if (signUpRes.headers['set-cookie']) {
             const newCookies = signUpRes.headers['set-cookie'].map(c => c.split(';')[0]).join('; ');
@@ -136,13 +160,11 @@ class SessionManager {
           const prepParams = new URLSearchParams();
           prepParams.append('strategy', 'email_code');
 
-          await client.post(
+          const prepRes = await client.post(
             `https://clerk.suno.com/v1/client/sign_ups/${authId}/prepare_verification?_clerk_js_version=5.0.0`,
             prepParams.toString()
           );
-        } else {
-          throw new Error(errData[0]?.long_message || errData[0]?.message || signInErr.message);
-        }
+          if (prepRes.status >= 400) throw new Error(`[OTP SignUp Request Failed - Status ${prepRes.status}] Body: ${JSON.stringify(prepRes.data)}`);
       }
 
       // 3. OTP BERHASIL DIKIRIM DALAM 1 DETIK! -> BUKA POP-UP DI DASHBOARD
@@ -175,6 +197,8 @@ class SessionManager {
           verifyParams.toString()
         );
 
+        if (verifyRes.status >= 400) throw new Error(`[Verify Blocked] ${JSON.stringify(verifyRes.data)}`);
+
         const resp = verifyRes.data.response;
         if (resp.status === 'complete') {
           bearerToken = resp.last_active_token?.jwt;
@@ -191,6 +215,8 @@ class SessionManager {
           `https://clerk.suno.com/v1/client/sign_ins/${authId}/attempt_first_factor?_clerk_js_version=5.0.0`,
           verifyParams.toString()
         );
+
+        if (verifyRes.status >= 400) throw new Error(`[Verify Blocked] ${JSON.stringify(verifyRes.data)}`);
 
         const resp = verifyRes.data.response;
         if (resp.status === 'complete') {
@@ -220,21 +246,14 @@ class SessionManager {
       return { success: true };
 
     } catch (err) {
-      // Menganalisis error asli (Cloudflare, Timeout, atau Axios Error)
-      let errMsg = err.message;
-      let rawDetail = "";
-
+      // Menangkap Error Brutal agar tercetak utuh di Dashboard
+      let fullErrorLog = err.message;
+      
+      // Jika errornya dari Axios biasa (timeout/network)
       if (err.response) {
-        if (typeof err.response.data === 'string' && err.response.data.toLowerCase().includes('cloudflare')) {
-          errMsg = `Akses Ditolak Cloudflare (Status ${err.response.status}).`;
-        } else if (err.response.data?.errors) {
-          errMsg = err.response.data.errors[0]?.long_message || err.response.data.errors[0]?.message || errMsg;
-        }
-        // Ambil maksimal 150 karakter data asli agar popup tidak terlalu penuh
-        rawDetail = typeof err.response.data === 'string' ? err.response.data.substring(0, 150) : JSON.stringify(err.response.data);
+          fullErrorLog = `[Status: ${err.response.status}] DATA: ${JSON.stringify(err.response.data)}`;
       }
 
-      const fullErrorLog = `GAGAL: ${errMsg} | DATA ASLI: ${rawDetail}`;
       logger.error(`Login Error for ${accountId}: ${fullErrorLog}`);
 
       this.accountManager.updateAccount(accountId, { statusCookie: 'expired' });
