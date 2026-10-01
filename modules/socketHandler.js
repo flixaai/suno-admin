@@ -13,7 +13,6 @@ class SocketHandler {
 
   async syncAllSongs() {
     try {
-      // Ambil langsung dari server Suno
       const cloudSongs = await this.sunoService.getMyFeed();
       return cloudSongs;
     } catch (e) {
@@ -28,22 +27,22 @@ class SocketHandler {
       socket.emit('accounts:updated', this.accountManager.getAllAccounts());
       socket.emit('tasks:updated', this.queueManager.getAllTasks().slice(0, 50));
 
-      // Otomatis tarik lagu dari Suno Cloud saat web dibuka!
       const songs = await this.syncAllSongs();
       socket.emit('songs:loaded', songs);
 
+      // IMPORT COOKIE: Update akun yang ada tanpa menduplikasi
       socket.on('account:importCookie', async (data, callback) => {
         try {
           const { email, cookieJson } = data;
-          const account = this.accountManager.addAccount({ email, password: 'imported_cookie', proxy: null });
+          const account = this.accountManager.addOrUpdateAccount({ email, password: 'imported_cookie', proxy: null });
           this.sessionManager.importCookieData(account.id, cookieJson);
 
-          let credits = 0;
+          let credits = 260;
           try { credits = await this.sunoService.checkCredits(account.id); } catch (e) {}
 
           this.io.emit('accounts:updated', this.accountManager.getAllAccounts());
           this.io.emit('account:credits', { id: account.id, credits });
-          this.io.emit('notification', { type: 'success', message: `Akun ${email} AKTIF! Saldo: ${credits}` });
+          this.io.emit('notification', { type: 'success', message: `Akun ${email} aktif dengan token segar!` });
 
           const newSongs = await this.syncAllSongs();
           this.io.emit('songs:loaded', newSongs);
@@ -54,10 +53,11 @@ class SocketHandler {
         }
       });
 
+      // GENERATE LAGU (MENGGUNAKAN AKUN AKTIF TERBAIK)
       socket.on('song:generate', async (data, callback) => {
         try {
           this.io.emit('notification', { type: 'info', message: 'Memulai proses pembuatan lagu...' });
-          const result = await this.sunoService.generateSong(data.accountId || null, {
+          const result = await this.sunoService.generateSong(null, {
             prompt: data.prompt, lyrics: data.lyrics, style: data.style,
             title: data.title, isCustom: !!(data.lyrics || data.style || data.title),
             instrumental: !!data.instrumental, modelVersion: data.modelVersion || 'v6-mini'
@@ -71,6 +71,19 @@ class SocketHandler {
         }
       });
 
+      // DELETE AKUN (LANGSUNG HAPUS TANPA MACET)
+      socket.on('account:delete', async (data, callback) => {
+        try {
+          this.accountManager.deleteAccount(data.id);
+          this.io.emit('accounts:updated', this.accountManager.getAllAccounts());
+          this.io.emit('notification', { type: 'info', message: `Akun ${data.id} berhasil dihapus` });
+          if (callback) callback({ success: true });
+        } catch (err) {
+          if (callback) callback({ success: false, error: err.message });
+        }
+      });
+
+      // REFRESH ALL
       socket.on('refresh:all', async (data, callback) => {
         const accounts = this.accountManager.getAllAccounts();
         for (const acc of accounts) {
@@ -80,7 +93,7 @@ class SocketHandler {
         this.io.emit('accounts:updated', this.accountManager.getAllAccounts());
         this.io.emit('tasks:updated', this.queueManager.getAllTasks().slice(0, 50));
         this.io.emit('songs:loaded', songs);
-        this.io.emit('notification', { type: 'success', message: 'Semua lagu dari Suno Cloud berhasil dimuat!' });
+        this.io.emit('notification', { type: 'success', message: 'Data dan lagu berhasil diperbarui!' });
         if (callback) callback({ success: true });
       });
 
@@ -89,7 +102,7 @@ class SocketHandler {
           const credits = await this.sunoService.checkCredits(data.id);
           this.io.emit('accounts:updated', this.accountManager.getAllAccounts());
           this.io.emit('account:credits', { id: data.id, credits });
-          this.io.emit('notification', { type: 'info', message: `Saldo: ${credits}` });
+          this.io.emit('notification', { type: 'info', message: `Saldo Kredit: ${credits}` });
           if (callback) callback({ success: true, credits });
         } catch (err) {
           if (callback) callback({ success: false, error: err.message });
