@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const multer = require('multer');
 const path = require('path');
+const axios = require('axios');
 const { apiKeyMiddleware } = require('../middleware/auth');
 const { generateLimiter, apiLimiter } = require('../middleware/rateLimiter');
 
@@ -12,37 +13,71 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage, limits: { fileSize: 50 * 1024 * 1024 } });
 
-// Apply rate limiter to all API routes
+// =========================================================================
+// FITUR BARU: MESIN STREAMING & DOWNLOADER UNLIMITED (BEBAS BLOKIR)
+// Bisa dipanggil oleh Web Admin maupun Website Utama Anda nanti
+// Endpoint: GET /api/v1/audio/:audioId?download=true&title=JudulLagu
+// =========================================================================
+router.get('/v1/audio/:audioId', async (req, res) => {
+  const { audioId } = req.params;
+  const { download, title } = req.query;
+
+  // Daftar CDN Mirror Resmi Suno
+  const mirrors = [
+    `https://cdn1.suno.ai/${audioId}.mp3`,
+    `https://audiopipe.suno.ai/track/${audioId}.mp3`,
+    `https://cdn2.suno.ai/${audioId}.mp3`
+  ];
+
+  for (const url of mirrors) {
+    try {
+      const response = await axios({
+        method: 'GET',
+        url: url,
+        responseType: 'stream',
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+          'Referer': 'https://suno.com/',
+          'Origin': 'https://suno.com'
+        },
+        timeout: 20000
+      });
+
+      if (download === 'true') {
+        const safeTitle = (title || 'suno_song').replace(/[^a-zA-Z0-9_-]/g, '_');
+        res.setHeader('Content-Disposition', `attachment; filename="${safeTitle}.mp3"`);
+      } else {
+        res.setHeader('Content-Disposition', 'inline');
+      }
+
+      res.setHeader('Content-Type', 'audio/mpeg');
+      res.setHeader('Accept-Ranges', 'bytes');
+      res.setHeader('Cache-Control', 'public, max-age=86400');
+      
+      return response.data.pipe(res);
+    } catch (err) {
+      // Coba mirror berikutnya jika CDN 1 sibuk
+    }
+  }
+
+  res.status(404).json({ error: 'Audio file not ready or not found on Suno CDN' });
+});
+
+// Apply rate limiter to other API routes
 router.use(apiLimiter);
 
 /**
  * POST /api/v1/generate
- * Generate a new song
  */
 router.post('/v1/generate', apiKeyMiddleware, generateLimiter, async (req, res) => {
   try {
-    const {
-      prompt,
-      lyrics,
-      style,
-      title,
-      instrumental = false,
-      modelVersion = 'v4',
-      vocalGender,
-      personaId,
-      voiceId,
-      accountId
-    } = req.body;
+    const { prompt, lyrics, style, title, instrumental = false, modelVersion = 'v6-mini', accountId } = req.body;
 
     if (!prompt && !lyrics) {
-      return res.status(400).json({
-        error: 'Missing required field',
-        message: 'Either "prompt" or "lyrics" is required'
-      });
+      return res.status(400).json({ error: 'Missing required field', message: 'Either "prompt" or "lyrics" is required' });
     }
 
     const sunoService = req.app.locals.sunoService;
-
     const result = await sunoService.generateSong(accountId || null, {
       prompt,
       lyrics,
@@ -50,28 +85,18 @@ router.post('/v1/generate', apiKeyMiddleware, generateLimiter, async (req, res) 
       title,
       isCustom: !!(lyrics || style || title),
       instrumental,
-      modelVersion,
-      vocalGender,
-      personaId,
-      voiceId
+      modelVersion
     });
 
-    res.json({
-      success: true,
-      data: result
-    });
+    res.json({ success: true, data: result });
   } catch (err) {
     logger.error('API generate error:', err);
-    res.status(500).json({
-      success: false,
-      error: err.message
-    });
+    res.status(500).json({ success: false, error: err.message });
   }
 });
 
 /**
  * GET /api/v1/status/:taskId
- * Check task status
  */
 router.get('/v1/status/:taskId', apiKeyMiddleware, async (req, res) => {
   try {
@@ -79,126 +104,8 @@ router.get('/v1/status/:taskId', apiKeyMiddleware, async (req, res) => {
     const sunoService = req.app.locals.sunoService;
     const task = await sunoService.getTaskStatus(taskId);
 
-    if (!task) {
-      return res.status(404).json({
-        success: false,
-        error: 'Task not found'
-      });
-    }
-
-    res.json({
-      success: true,
-      data: task
-    });
-  } catch (err) {
-    res.status(500).json({
-      success: false,
-      error: err.message
-    });
-  }
-});
-
-/**
- * POST /api/v1/extend
- * Extend/continue a track
- */
-router.post('/v1/extend', apiKeyMiddleware, generateLimiter, async (req, res) => {
-  try {
-    const { audioId, prompt, continueAt, accountId } = req.body;
-
-    if (!audioId) {
-      return res.status(400).json({ error: '"audioId" is required' });
-    }
-
-    const sunoService = req.app.locals.sunoService;
-    const result = await sunoService.extendTrack(audioId, prompt, continueAt, accountId);
-
-    res.json({ success: true, data: result });
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-/**
- * POST /api/v1/remix
- * Create a remix/cover
- */
-router.post('/v1/remix', apiKeyMiddleware, generateLimiter, async (req, res) => {
-  try {
-    const { audioId, newStyle, accountId } = req.body;
-
-    if (!audioId || !newStyle) {
-      return res.status(400).json({ error: '"audioId" and "newStyle" are required' });
-    }
-
-    const sunoService = req.app.locals.sunoService;
-    const result = await sunoService.createRemixOrCover(audioId, newStyle, accountId);
-
-    res.json({ success: true, data: result });
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-/**
- * POST /api/v1/stems
- * Separate stems (vocals & instruments)
- */
-router.post('/v1/stems', apiKeyMiddleware, async (req, res) => {
-  try {
-    const { audioId, accountId } = req.body;
-
-    if (!audioId) {
-      return res.status(400).json({ error: '"audioId" is required' });
-    }
-
-    const sunoService = req.app.locals.sunoService;
-    const result = await sunoService.separateStems(audioId, accountId);
-
-    res.json({ success: true, data: result });
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-/**
- * POST /api/v1/concat
- * Concatenate/extend song
- */
-router.post('/v1/concat', apiKeyMiddleware, generateLimiter, async (req, res) => {
-  try {
-    const { clipId, options, accountId } = req.body;
-
-    if (!clipId) {
-      return res.status(400).json({ error: '"clipId" is required' });
-    }
-
-    const sunoService = req.app.locals.sunoService;
-    const result = await sunoService.concatSong(clipId, options || {}, accountId);
-
-    res.json({ success: true, data: result });
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-/**
- * POST /api/v1/upload
- * Upload audio and infill
- */
-router.post('/v1/upload', apiKeyMiddleware, upload.single('audio'), async (req, res) => {
-  try {
-    if (!req.file) {
-      return res.status(400).json({ error: 'Audio file is required' });
-    }
-
-    const options = JSON.parse(req.body.options || '{}');
-    const accountId = req.body.accountId;
-
-    const sunoService = req.app.locals.sunoService;
-    const result = await sunoService.uploadAudioAndInfill(req.file.path, options, accountId);
-
-    res.json({ success: true, data: result });
+    if (!task) return res.status(404).json({ success: false, error: 'Task not found' });
+    res.json({ success: true, data: task });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
@@ -206,7 +113,6 @@ router.post('/v1/upload', apiKeyMiddleware, upload.single('audio'), async (req, 
 
 /**
  * GET /api/v1/accounts
- * List all accounts (masked)
  */
 router.get('/v1/accounts', apiKeyMiddleware, async (req, res) => {
   try {
@@ -216,36 +122,9 @@ router.get('/v1/accounts', apiKeyMiddleware, async (req, res) => {
       data: accounts.map(a => ({
         id: a.id,
         email: a.email,
-        statusProxy: a.statusProxy,
         statusCookie: a.statusCookie,
         creditsLeft: a.creditsLeft
       }))
-    });
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-/**
- * GET /api/v1/credits
- * Get total available credits
- */
-router.get('/v1/credits', apiKeyMiddleware, async (req, res) => {
-  try {
-    const accounts = req.app.locals.accountManager.getAllAccounts();
-    const activeAccounts = accounts.filter(a => a.statusCookie === 'active');
-    const totalCredits = activeAccounts.reduce((sum, a) => sum + (a.creditsLeft || 0), 0);
-
-    res.json({
-      success: true,
-      data: {
-        totalCredits,
-        activeAccounts: activeAccounts.length,
-        breakdown: activeAccounts.map(a => ({
-          id: a.id,
-          credits: a.creditsLeft
-        }))
-      }
     });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
