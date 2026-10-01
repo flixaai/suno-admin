@@ -661,7 +661,7 @@ function getDashboardHTML() {
         if (result.success) {
           showToast('Success', 'Login successful!', 'success');
         } else {
-          showToast('Error', \`Login failed: \${result.error}\`, 'error');
+          // Toast error sudah ditangani otomatis oleh emit global 'notification' dari backend
         }
       });
     }
@@ -905,22 +905,28 @@ function getDashboardHTML() {
       };
 
       const toast = document.createElement('div');
-      toast.className = \`toast-enter glass-card rounded-xl p-4 border-l-4 \${colors[type]} min-w-[300px] max-w-md\`;
+      // Tambahkan 'select-text' agar bisa di-copy & z-50 agar di depan
+      toast.className = \`toast-enter glass-card rounded-xl p-4 border-l-4 \${colors[type]} min-w-[300px] max-w-md select-text relative z-50\`;
       toast.innerHTML = \`
         <div class="flex items-start space-x-3">
-          <i class="fas \${icons[type]} mt-0.5"></i>
-          <div class="flex-1">
+          <i class="fas \${icons[type]} mt-0.5 shrink-0"></i>
+          <div class="flex-1 overflow-hidden">
             <div class="text-sm font-semibold text-white">\${title}</div>
-            <div class="text-xs text-gray-400 mt-0.5">\${message}</div>
+            <!-- break-words agar text error yang panjang tidak terpotong -->
+            <div class="text-xs text-gray-300 mt-0.5 break-words whitespace-pre-wrap">\${message}</div>
           </div>
-          <button onclick="this.parentElement.parentElement.remove()" class="text-gray-500 hover:text-white">
-            <i class="fas fa-times text-xs"></i>
+          <button onclick="this.parentElement.parentElement.remove()" class="text-gray-500 hover:text-white shrink-0">
+            <i class="fas fa-times text-lg"></i>
           </button>
         </div>
       \`;
       container.appendChild(toast);
 
-      setTimeout(() => toast.remove(), 6000);
+      // Jika tipe 'error', biarkan popup stay di layar agar bisa di-copy.
+      // Jika bukan error (info/success), hilangkan otomatis dalam 6 detik.
+      if (type !== 'error') {
+        setTimeout(() => toast.remove(), 6000);
+      }
     }
 
     function addLog(message) {
