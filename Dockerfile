@@ -6,15 +6,22 @@ ENV NODE_ENV=production
 
 WORKDIR /app
 
+# Copy package files
 COPY package*.json ./
-RUN npm ci --only=production
 
+# Use npm install (bukan npm ci) karena package-lock.json mungkin belum ada
+# --omit=dev = skip devDependencies (pengganti --only=production yang sudah deprecated)
+RUN npm install --omit=dev
+
+# Copy seluruh source code
 COPY . .
 
+# Buat folder sessions & data
 RUN mkdir -p sessions data && \
-    echo '[]' > data/accounts.json 2>/dev/null || true && \
-    echo '[]' > data/queue.json 2>/dev/null || true
+    echo '[]' > data/accounts.json && \
+    echo '[]' > data/queue.json
 
 EXPOSE 3000
 
+USER root
 CMD ["node", "server.js"]
