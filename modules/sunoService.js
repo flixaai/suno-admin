@@ -141,40 +141,36 @@ class SunoService {
       const res = await axios.post(`${this.apiBase}/api/generate/v2/`, payload, config);
       if (res.data && res.data.clips) clips = res.data.clips;
     } catch (errAxios) {
-      logger.warn(`Axios dicegat Suno. Mengalihkan ke Superkomputer Bright Data (Bypass Turnstile)...`);
+      logger.warn(`Axios dicegat Suno. Mengalihkan ke Bright Data Unlocker...`);
     }
 
-    // JALUR 2: Bright Data Unlocker (Bypass Turnstile & Tanpa Tabrakan Cookie)
+    // JALUR 2: Bright Data Unlocker (BEBAS ERROR FORBIDDEN COOKIE)
     if (!clips) {
       let browser = null;
       try {
         const wsUrl = this.getBrightDataWS();
-        logger.info(`[Bright Data Unlocker] Menghubungkan ke ${wsUrl.slice(0, 30)}...`);
+        logger.info(`[Bright Data Unlocker] Membuka browser remote via ${wsUrl.slice(0, 30)}...`);
         browser = await puppeteer.connect({ browserWSEndpoint: wsUrl });
         const page = await browser.newPage();
 
-        // FILTER: Hindari tabrakan dengan __session milik Bright Data
-        const safeCookies = session.cookies.split('; ').map(c => {
-          const [name, ...val] = c.split('=');
-          return { name: name.trim(), value: val.join('=').trim(), domain: '.suno.com', path: '/' };
-        }).filter(c => c.name !== '__session'); // Hilangkan __session dari CDP agar tidak bentrok
-
-        if (safeCookies.length) {
-          await page.setCookie(...safeCookies);
-        }
+        // SOLUSI TOTAL: Gunakan setExtraHTTPHeaders (Bukan setCookie yang dilarang Bright Data!)
+        await page.setExtraHTTPHeaders({
+          'Cookie': session.cookies
+        });
 
         await page.goto('https://suno.com/create', { waitUntil: 'domcontentloaded', timeout: 35000 });
 
-        // Suntikkan __session Suno lewat DOM (Aman dari bentrok CDP)
-        await page.evaluate((tok) => {
+        // Set di level DOM murni (Aman tanpa CDP error)
+        await page.evaluate((cookieStr) => {
           try {
-            document.cookie = `__session=${tok}; domain=.suno.com; path=/; secure`;
+            cookieStr.split('; ').forEach(c => {
+              document.cookie = c + '; path=/; domain=.suno.com';
+            });
           } catch(e) {}
-        }, session.bearerToken);
+        }, session.cookies);
 
         await page.waitForFunction(() => window.Clerk && window.Clerk.isReady, { timeout: 25000 });
 
-        // Eksekusi generate resmi dari dalam browser
         const genResult = await page.evaluate(async (pl, token) => {
           try {
             const authToken = (window.Clerk && window.Clerk.session) ? await window.Clerk.session.getToken() : token;
@@ -194,9 +190,9 @@ class SunoService {
 
         if (genResult && genResult.clips) {
           clips = genResult.clips;
-          logger.info(`[Bright Data SUCCESS] 2 Lagu berhasil dibuat melewati Turnstile!`);
+          logger.info(`[Bright Data SUCCESS] Lagu berhasil dibuat di Suno!`);
         } else {
-          throw new Error(genResult.detail || genResult.error || 'Respon klip tidak ditemukan');
+          throw new Error(genResult.detail || genResult.error || 'Gagal memproses klip di Suno');
         }
       } catch (errBD) {
         logger.error(`Bright Data Runner Error: ${errBD.message}`);
