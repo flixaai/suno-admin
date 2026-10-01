@@ -8,19 +8,17 @@ class SessionManager {
     this.accountManager = accountManager;
     this.otpCallbacks = new Map();
     this.loginLocks = new Set();
-    this.brightDataWS = process.env.BRIGHT_DATA_WS || 'wss://brd-customer-hl_c154ff17-zone-suno_browser:ar1oslh5xtvr@brd.superproxy.io:9222';
+    this.settingsPath = path.join(__dirname, '..', 'data', 'settings.json');
   }
 
-  // DEKODER BASE64URL RESMI (MENCEGAH ERROR SALAH BACA TOKEN)
-  decodeJwt(token) {
+  getBrightDataWS() {
     try {
-      let base64 = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
-      while (base64.length % 4) { base64 += '='; }
-      const jsonPayload = Buffer.from(base64, 'base64').toString('utf8');
-      return JSON.parse(jsonPayload);
-    } catch (e) {
-      return null;
-    }
+      if (fs.existsSync(this.settingsPath)) {
+        const s = JSON.parse(fs.readFileSync(this.settingsPath, 'utf-8'));
+        if (s.brightDataWS) return s.brightDataWS;
+      }
+    } catch (e) {}
+    return process.env.BRIGHT_DATA_WS || 'wss://brd-customer-hl_c154ff17-zone-suno_browser:ar1oslh5xtvr@brd.superproxy.io:9222';
   }
 
   importCookieData(accountId, cookieJsonString) {
@@ -54,17 +52,20 @@ class SessionManager {
       const session = this.loadSession(accountId);
       if (!session || !session.cookies) return false;
 
-      logger.info(`[Bright Data Keep-Alive] Menjalankan Penjaga Sesi Cloud untuk ${accountId}...`);
-
-      browser = await puppeteer.connect({ browserWSEndpoint: this.brightDataWS });
+      const wsUrl = this.getBrightDataWS();
+      browser = await puppeteer.connect({ browserWSEndpoint: wsUrl });
       const page = await browser.newPage();
 
-      const cookieObjects = session.cookies.split('; ').map(c => {
+      // Hindari tabrakan cookie __session di Bright Data
+      const safeCookies = session.cookies.split('; ').map(c => {
         const [name, ...val] = c.split('=');
         return { name: name.trim(), value: val.join('=').trim(), domain: '.suno.com', path: '/' };
-      });
+      }).filter(c => c.name !== '__session');
 
-      await page.setCookie(...cookieObjects);
+      if (safeCookies.length) {
+        await page.setCookie(...safeCookies);
+      }
+
       await page.goto('https://suno.com', { waitUntil: 'domcontentloaded', timeout: 30000 });
       await page.waitForFunction(() => window.Clerk && window.Clerk.isReady, { timeout: 20000 });
 
@@ -83,15 +84,13 @@ class SessionManager {
           statusCookie: 'active',
           lastLogin: new Date().toISOString()
         });
-        logger.info(`[Bright Data SUCCESS] Token berhasil diperpanjang 1 jam ke depan secara otomatis!`);
+        logger.info(`[Bright Data SUCCESS] Token berhasil diperpanjang otomatis!`);
         return true;
       }
     } catch (err) {
       logger.warn(`[Bright Data Keep-Alive Error] ${err.message}`);
     } finally {
-      if (browser) {
-        try { await browser.close(); } catch(e) {}
-      }
+      if (browser) try { await browser.close(); } catch(e) {}
     }
     return false;
   }
