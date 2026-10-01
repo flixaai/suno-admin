@@ -56,11 +56,6 @@ class SessionManager {
       browser = await puppeteer.connect({ browserWSEndpoint: wsUrl });
       const page = await browser.newPage();
 
-      // Gunakan setExtraHTTPHeaders (Bukan setCookie)
-      await page.setExtraHTTPHeaders({
-        'Cookie': session.cookies
-      });
-
       await page.goto('https://suno.com', { waitUntil: 'domcontentloaded', timeout: 30000 });
       await page.waitForFunction(() => window.Clerk && window.Clerk.isReady, { timeout: 20000 });
 
