@@ -341,7 +341,9 @@ function getDashboardHTML() {
           <td class="p-3.5 font-mono text-zinc-400 font-bold">\${acc.id}</td>
           <td class="p-3.5 text-white">\${acc.email}</td>
           <td class="p-3.5 text-center">
-            <span class="text-emerald-400 font-bold bg-emerald-500/10 px-2 py-1 rounded-full text-[10px]">🟢 Active</span>
+            <span class="\${acc.statusCookie === 'active' ? 'text-emerald-400 bg-emerald-500/10' : 'text-red-400 bg-red-500/10'} font-bold px-2 py-1 rounded-full text-[10px]">
+              \${acc.statusCookie === 'active' ? '🟢 Active' : '🔴 Expired'}
+            </span>
           </td>
           <td class="p-3.5 text-center font-bold text-orange-400">\${acc.creditsLeft || 0}</td>
           <td class="p-3.5 text-center">
