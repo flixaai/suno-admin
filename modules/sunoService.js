@@ -39,18 +39,14 @@ class SunoService {
     return config;
   }
 
+  // LANGSUNG AMBIL SESI TANPA PENCEGATAN PALSU
   async ensureValidSession(accountId) {
     const account = this.accountManager.getAccountRaw(accountId);
     if (!account) throw new Error(`Akun tidak ditemukan: ${accountId}`);
 
-    let session = this.sessionManager.loadSession(accountId);
+    const session = this.sessionManager.loadSession(accountId);
     if (!session || !session.bearerToken) {
-      throw new Error(`Tidak ada sesi aktif untuk ${accountId}.`);
-    }
-
-    if (this.sessionManager.isTokenExpiring(session.bearerToken)) {
-      await this.sessionManager.refreshToken(accountId);
-      session = this.sessionManager.loadSession(accountId);
+      throw new Error(`Tidak ada sesi aktif. Silakan import cookie.`);
     }
 
     return { account, session };
@@ -60,10 +56,9 @@ class SunoService {
     const accountId = accountIdOrNull || this.accountManager.getOptimalAccount()?.id;
     if (!accountId) return [];
 
-    let { account, session } = await this.ensureValidSession(accountId);
-    let config = this.getAxiosConfig(account, session);
-
     try {
+      const { account, session } = await this.ensureValidSession(accountId);
+      const config = this.getAxiosConfig(account, session);
       const res = await axios.get(`${this.apiBase}/api/feed/`, config);
       const clips = res.data || [];
       return clips.map(c => {
@@ -83,18 +78,13 @@ class SunoService {
         };
       });
     } catch (err) {
-      const isAuthErr = err.response?.status === 401 || err.response?.status === 403 || JSON.stringify(err.response?.data || '').includes('verify your request');
-      if (isAuthErr) {
-        const refreshed = await this.sessionManager.refreshToken(accountId);
-        if (refreshed) return this.getMyFeed(accountId);
-      }
       return [];
     }
   }
 
   async checkCredits(accountId) {
-    let { account, session } = await this.ensureValidSession(accountId);
-    let config = this.getAxiosConfig(account, session);
+    const { account, session } = await this.ensureValidSession(accountId);
+    const config = this.getAxiosConfig(account, session);
 
     try {
       const res = await axios.get(`${this.apiBase}/api/billing/info/`, config);
@@ -102,11 +92,6 @@ class SunoService {
       this.accountManager.updateAccount(accountId, { creditsLeft: credits, lastChecked: new Date().toISOString() });
       return credits;
     } catch (err) {
-      const isAuthErr = err.response?.status === 401 || err.response?.status === 403 || JSON.stringify(err.response?.data || '').includes('verify your request');
-      if (isAuthErr) {
-        const refreshed = await this.sessionManager.refreshToken(accountId);
-        if (refreshed) return this.checkCredits(accountId);
-      }
       throw new Error(err.response?.data?.detail || err.message);
     }
   }
@@ -137,33 +122,14 @@ class SunoService {
     }
 
     try {
+      logger.info(`Mengirim permintaan generate (${selectedMv}) ke Suno...`);
       let res;
       try {
         res = await axios.post(`${this.apiBase}/api/generate/v2/`, payload, config);
       } catch (errPost) {
-        const errBody = JSON.stringify(errPost.response?.data || errPost.message);
-        
-        // JIKA KENA ERROR "VERIFY YOUR REQUEST" ATAU 401/403 -> PERPANJANG OTOMATIS!
-        const isAuthError = errPost.response?.status === 401 ||
-                            errPost.response?.status === 403 ||
-                            errBody.includes("verify your request") ||
-                            errBody.includes("Unauthorized");
-
-        if (isAuthError) {
-          logger.info('[SunoService] Token meminta verifikasi ulang. Memperpanjang token sekarang...');
-          const refreshed = await this.sessionManager.refreshToken(accountId);
-          if (refreshed) {
-            session = this.sessionManager.loadSession(accountId);
-            config = this.getAxiosConfig(account, session);
-            // Ulangi pembuatan lagu dengan token yang baru!
-            res = await axios.post(`${this.apiBase}/api/generate/v2/`, payload, config);
-          } else {
-            throw new Error("Masa aktif token habis. Silakan buka Kiwi Browser sebentar dan klik 'Import Cookie Baru'.");
-          }
-        } else {
-          payload.mv = 'chirp-v3-5';
-          res = await axios.post(`${this.apiBase}/api/generate/v2/`, payload, config);
-        }
+        // Jika model v6-mini format internal ditolak, coba v3.5
+        payload.mv = 'chirp-v3-5';
+        res = await axios.post(`${this.apiBase}/api/generate/v2/`, payload, config);
       }
 
       if (res.data && res.data.clips) {
@@ -188,6 +154,7 @@ class SunoService {
       throw new Error('Respon tidak valid dari Suno API');
     } catch (err) {
       const errMsg = err.response?.data?.detail || err.response?.data?.message || err.message;
+      logger.error(`Generate Error: ${JSON.stringify(err.response?.data || err.message)}`);
       throw new Error(errMsg);
     }
   }
