@@ -193,42 +193,45 @@ app.get('/api/v1/audio/:audioId', async (req, res) => {
   const { download, title } = req.query;
 
   try {
-    const accounts = getAccounts();
-    const session = accounts.length ? loadSession(accounts[0].id) : null;
-    let streamUrl = `https://cdn1.suno.ai/${audioId}.mp3`;
-
-    if (session) {
-      try {
-        await keepAliveSession(session, accounts[0].id);
-        const config = getAxiosConfig(session);
-        const feedRes = await axios.get(`${SUNO_API_BASE}/api/feed/?ids=${audioId}`, config);
-        if (feedRes.data && feedRes.data[0] && feedRes.data[0].audio_url) {
-          streamUrl = feedRes.data[0].audio_url;
-        }
-      } catch (e) {}
-    }
-
-    if (download !== 'true') {
-      return res.redirect(streamUrl);
-    }
-
+    const streamUrl = `https://cdn1.suno.ai/${audioId}.mp3`;
     const safeTitle = (title || 'suno_music').replace(/[^a-zA-Z0-9_\-\s]/g, '').trim();
-    try {
-      const audioRes = await axios({
-        method: 'GET',
-        url: streamUrl,
-        responseType: 'stream',
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-        },
-        timeout: 45000
-      });
-      res.setHeader('Content-Disposition', `attachment; filename="${safeTitle || 'song'}.mp3"`);
-      res.setHeader('Content-Type', 'audio/mpeg');
-      return audioRes.data.pipe(res);
-    } catch (streamErr) {
-      return res.redirect(streamUrl);
+
+    const headers = {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+      'Referer': 'https://suno.com/',
+      'Origin': 'https://suno.com'
+    };
+
+    if (req.headers.range) {
+      headers['Range'] = req.headers.range;
     }
+
+    const audioRes = await axios({
+      method: 'GET',
+      url: streamUrl,
+      responseType: 'stream',
+      headers: headers,
+      timeout: 45000,
+      validateStatus: (status) => status >= 200 && status < 400
+    });
+
+    res.status(audioRes.status);
+    if (audioRes.headers['content-range']) {
+      res.setHeader('Content-Range', audioRes.headers['content-range']);
+    }
+    if (audioRes.headers['content-length']) {
+      res.setHeader('Content-Length', audioRes.headers['content-length']);
+    }
+    res.setHeader('Content-Type', 'audio/mpeg');
+    res.setHeader('Accept-Ranges', 'bytes');
+
+    if (download === 'true') {
+      res.setHeader('Content-Disposition', `attachment; filename="${safeTitle || 'song'}.mp3"`);
+    } else {
+      res.setHeader('Content-Disposition', 'inline');
+    }
+
+    return audioRes.data.pipe(res);
   } catch (err) {
     res.status(404).send('Audio tidak ditemukan atau sedang diproses');
   }
