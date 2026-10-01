@@ -7,25 +7,30 @@ class BrowserManager {
     this.browsers = new Map();
   }
 
-  // Fungsi untuk memecah string proxy (http://user:pass@host:port)
-  parseProxy(proxyString) {
-    if (!proxyString) return null;
+  // Fungsi Parser Proxy Khusus Chrome
+  parseProxy(proxyStr) {
+    if (!proxyStr) return null;
     try {
-      const url = new URL(proxyString.includes('://') ? proxyString : `http://${proxyString}`);
+      let str = proxyStr.trim();
+      if (!str.startsWith('http://') && !str.startsWith('https://')) {
+        str = 'http://' + str;
+      }
+      const parsed = new URL(str);
       return {
-        server: `${url.protocol}//${url.hostname}:${url.port}`,
-        username: url.username || null,
-        password: url.password || null
+        // PERBAIKAN: Murni hanya host:port (Tanpa User & Pass!)
+        server: `http://${parsed.hostname}:${parsed.port || '80'}`,
+        username: parsed.username ? decodeURIComponent(parsed.username) : null,
+        password: parsed.password ? decodeURIComponent(parsed.password) : null
       };
     } catch (e) {
-      // Jika format simple host:port
-      return { server: `http://${proxyString}`, username: null, password: null };
+      logger.error('Proxy format error:', e.message);
+      return null;
     }
   }
 
   async launch(accountId, proxy = null) {
     await this.close(accountId);
-    
+
     const proxyConfig = this.parseProxy(proxy);
     const args = [
       '--no-sandbox',
@@ -36,7 +41,8 @@ class BrowserManager {
       '--window-size=1280,720'
     ];
 
-    if (proxyConfig) {
+    // Masukkan HANYA server IP:Port ke Chrome flag
+    if (proxyConfig && proxyConfig.server) {
       args.push(`--proxy-server=${proxyConfig.server}`);
     }
 
@@ -48,16 +54,16 @@ class BrowserManager {
 
     const page = await browser.newPage();
 
-    // --- PENTING: TANGANI USERNAME & PASSWORD PROXY DI SINI ---
+    // Autentikasi Username & Password Proxy secara terpisah
     if (proxyConfig && proxyConfig.username && proxyConfig.password) {
       await page.authenticate({
         username: proxyConfig.username,
         password: proxyConfig.password
       });
-      console.log(`[Proxy] Terautentikasi untuk akun: ${accountId}`);
+      logger.info(`[Proxy Auth] Authenticated for ${accountId}`);
     }
 
-    // Blokir beban berat agar Railway tetap ringan
+    // Filter beban berat agar ringan
     await page.setRequestInterception(true);
     page.on('request', (req) => {
       const type = req.resourceType();
