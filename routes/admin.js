@@ -104,7 +104,6 @@ function getDashboardHTML() {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="referrer" content="no-referrer">
   <title>Suno AI Studio & Dashboard</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="/socket.io/socket.io.js"></script>
@@ -138,7 +137,6 @@ function getDashboardHTML() {
         <span id="topCreditDisplay" class="text-orange-400 font-bold">0</span>
       </div>
       <button onclick="refreshAll()" class="p-2 rounded-xl bg-zinc-800/80 hover:bg-zinc-700 text-zinc-300 transition" title="Refresh Data"><i class="fas fa-sync-alt text-xs"></i></button>
-      <!-- MENU HAMBURGER SLIDER DI KANAN ATAS -->
       <button onclick="toggleDrawer(true)" class="p-2 px-3 rounded-xl bg-orange-600 hover:bg-orange-500 text-white font-bold text-xs flex items-center space-x-1.5 transition shadow-lg shadow-orange-600/20">
         <i class="fas fa-bars"></i>
         <span class="hidden sm:inline">Menu</span>
@@ -177,9 +175,8 @@ function getDashboardHTML() {
   <!-- MAIN VIEW -->
   <main class="max-w-[1500px] w-full mx-auto px-4 lg:px-8 py-6 flex-1">
 
-    <!-- VIEW 1: DASHBOARD & ACCOUNTS (HALAMAN AWAL) -->
+    <!-- VIEW 1: DASHBOARD & ACCOUNTS -->
     <div id="view-dashboard">
-      <!-- Stats Ringkasan -->
       <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         <div class="suno-card rounded-2xl p-4">
           <span class="text-[11px] text-zinc-500 uppercase tracking-wider font-semibold">Total Saldo</span>
@@ -199,19 +196,17 @@ function getDashboardHTML() {
         </div>
       </div>
 
-      <!-- Account Management Table -->
       <div class="suno-card rounded-2xl p-5 mb-6">
         <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4">
           <div>
             <h2 class="text-sm font-bold text-white uppercase tracking-wider">Account Manager</h2>
-            <p class="text-xs text-zinc-500">Akun tersimpan aman dan tidak akan hilang setelah deploy</p>
+            <p class="text-xs text-zinc-500">Akun tersimpan permanen dan tidak akan hilang</p>
           </div>
-          <button onclick="openImportCookieModal()" class="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition flex items-center space-x-2 shadow-lg shadow-emerald-600/20">
+          <button onclick="openImportCookieModal()" class="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition flex items-center space-x-2">
             <i class="fas fa-cookie-bite"></i><span>Import Cookie Baru</span>
           </button>
         </div>
 
-        <!-- TABEL RESPONSIVE SCROLLABLE DI HP (BISA DIGESER) -->
         <div class="overflow-x-auto w-full rounded-xl border border-[#202230]">
           <table class="w-full text-left text-xs whitespace-nowrap">
             <thead class="bg-[#171822] text-zinc-400 border-b border-[#202230]">
@@ -232,7 +227,6 @@ function getDashboardHTML() {
     <!-- VIEW 2: SONG GENERATOR STUDIO -->
     <div id="view-generator" class="hidden">
       <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        <!-- Form Pembuatan Lagu -->
         <div class="lg:col-span-5 suno-card rounded-2xl p-5 shadow-2xl">
           <div class="flex items-center justify-between mb-4">
             <h2 class="text-sm font-bold text-white uppercase tracking-wider flex items-center space-x-2">
@@ -246,7 +240,7 @@ function getDashboardHTML() {
             <div>
               <label class="block text-xs font-semibold text-zinc-400 mb-1">Model Version</label>
               <select id="songModel" class="w-full px-3.5 py-2.5 rounded-xl suno-input text-white text-xs font-medium focus:outline-none">
-                <option value="v6-mini" selected>✨ v6-mini (Free / Gratis Terbaru - Super Jernih)</option>
+                <option value="v6-mini" selected>✨ v6-mini (Free Terbaru - Kualitas Super Jernih)</option>
                 <option value="v6">🔥 v6 (Pro - Full Quality)</option>
                 <option value="v6-wild">⚡ v6-wild (Pro - Eksperimental)</option>
                 <option value="v4">💎 v4 (Pro - Klasik)</option>
@@ -266,7 +260,7 @@ function getDashboardHTML() {
 
             <div>
               <label class="block text-xs font-semibold text-zinc-400 mb-1">Lirik atau Deskripsi Lagu</label>
-              <textarea id="songLyrics" rows="4" class="w-full px-3.5 py-2.5 rounded-xl suno-input text-white placeholder-zinc-600 text-xs focus:outline-none" placeholder="[Verse]&#10;Di bawah sinar rembulan...&#10;[Chorus]&#10;Kutatap paras ayumu..."></textarea>
+              <textarea id="songLyrics" rows="4" class="w-full px-3.5 py-2.5 rounded-xl suno-input text-white placeholder-zinc-600 text-xs focus:outline-none" placeholder="[Verse]&#10;Di bawah sinar rembulan..."></textarea>
             </div>
 
             <div class="flex items-center space-x-2 pt-1">
@@ -281,7 +275,6 @@ function getDashboardHTML() {
           </form>
         </div>
 
-        <!-- Daftar Lagu Library Hasil Generate -->
         <div class="lg:col-span-7">
           <div class="flex items-center justify-between mb-4">
             <h2 class="text-sm font-bold text-white uppercase tracking-wider flex items-center space-x-2">
@@ -294,7 +287,7 @@ function getDashboardHTML() {
       </div>
     </div>
 
-    <!-- VIEW 3: TASK QUEUE (LENGKAP DETAIL ID) -->
+    <!-- VIEW 3: TASK QUEUE -->
     <div id="view-queue" class="hidden">
       <div class="suno-card rounded-2xl p-5">
         <h2 class="text-sm font-bold text-white uppercase tracking-wider mb-4">Task Queue (1 Generate = 2 Lagu)</h2>
@@ -324,22 +317,23 @@ function getDashboardHTML() {
 
   </main>
 
-  <!-- POPUP MINI PLAYER (MENGGANTIKAN BAR RUSAK DI BAWAH) -->
+  <!-- POPUP MINI PLAYER (PUTAR & DOWNLOAD MP3 BERSIH DARI SERVER SENDIRI) -->
   <div id="miniPlayerModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/80 backdrop-blur-sm p-4">
     <div class="suno-card rounded-3xl p-6 w-full max-w-sm text-center shadow-2xl relative border border-orange-500/30">
       <button onclick="closeMiniPlayer()" class="absolute top-4 right-4 text-zinc-400 hover:text-white p-2"><i class="fas fa-times text-lg"></i></button>
       
-      <img id="mpCover" src="" referrerpolicy="no-referrer" class="w-40 h-40 rounded-2xl mx-auto object-cover mb-4 shadow-xl border border-zinc-800">
+      <img id="mpCover" src="" class="w-40 h-40 rounded-2xl mx-auto object-cover mb-4 shadow-xl border border-zinc-800">
       <h3 id="mpTitle" class="text-sm font-bold text-white truncate">Title</h3>
       <p id="mpTags" class="text-xs text-zinc-400 truncate mt-1">Tags</p>
       
+      <!-- Audio Player Mengarah ke Endpoint Internal Server /api/v1/audio -->
       <div class="mt-4">
-        <audio id="mpAudio" controls referrerpolicy="no-referrer" class="w-full h-10"></audio>
+        <audio id="mpAudio" controls class="w-full h-10"></audio>
       </div>
 
       <div class="mt-4 pt-4 border-t border-[#202230] flex items-center justify-between text-xs">
         <span id="mpAudioId" class="font-mono text-[10px] text-zinc-500">ID: -</span>
-        <a id="mpDownload" href="#" download target="_blank" class="px-3.5 py-2 bg-orange-600 hover:bg-orange-500 text-white rounded-xl font-bold flex items-center space-x-1.5 transition">
+        <a id="mpDownload" href="#" class="px-3.5 py-2 bg-orange-600 hover:bg-orange-500 text-white rounded-xl font-bold flex items-center space-x-1.5 transition shadow-lg shadow-orange-600/20">
           <i class="fas fa-download"></i><span>Download MP3</span>
         </a>
       </div>
@@ -408,7 +402,6 @@ function getDashboardHTML() {
       addLog(\`[\${data.type}] \${data.message}\`);
     });
 
-    // RENDER TABEL AKUN (RESPONSIVE SCROLLABLE)
     function renderAccounts() {
       const tbody = document.getElementById('accountsTableBody');
       if (!accounts.length) {
@@ -438,7 +431,7 @@ function getDashboardHTML() {
       }
     }
 
-    // RENDER LIBRARY HASIL GENERATE
+    // RENDER LIBRARY
     function renderLibrary() {
       const c = document.getElementById('libraryContainer');
       if (!libraryClips.length) {
@@ -449,8 +442,8 @@ function getDashboardHTML() {
       c.innerHTML = libraryClips.map(clip => \`
         <div class="suno-card rounded-2xl p-3.5 flex items-center justify-between hover:bg-[#181924] transition">
           <div class="flex items-center space-x-3.5 overflow-hidden">
-            <div class="relative w-14 h-14 rounded-xl overflow-hidden shrink-0 cursor-pointer shadow-md" onclick="openMiniPlayer('\${clip.audioUrl}', '\${clip.title}', '\${clip.tags}', '\${clip.imageUrl}', '\${clip.id}')">
-              <img src="\${clip.imageUrl}" referrerpolicy="no-referrer" class="w-full h-full object-cover">
+            <div class="relative w-14 h-14 rounded-xl overflow-hidden shrink-0 cursor-pointer shadow-md" onclick="openMiniPlayer('\${clip.id}', '\${clip.title}', '\${clip.tags}', '\${clip.imageUrl}')">
+              <img src="\${clip.imageUrl}" class="w-full h-full object-cover">
               <div class="absolute inset-0 bg-black/40 flex items-center justify-center">
                 <div class="w-7 h-7 rounded-full bg-white text-zinc-900 flex items-center justify-center pl-0.5 shadow-lg">
                   <i class="fas fa-play text-[10px]"></i>
@@ -467,10 +460,10 @@ function getDashboardHTML() {
             </div>
           </div>
           <div class="flex items-center space-x-2 shrink-0">
-            <button onclick="openMiniPlayer('\${clip.audioUrl}', '\${clip.title}', '\${clip.tags}', '\${clip.imageUrl}', '\${clip.id}')" class="p-2.5 rounded-xl bg-orange-600/10 text-orange-400 hover:bg-orange-600 hover:text-white text-xs transition">
+            <button onclick="openMiniPlayer('\${clip.id}', '\${clip.title}', '\${clip.tags}', '\${clip.imageUrl}')" class="p-2.5 rounded-xl bg-orange-600/10 text-orange-400 hover:bg-orange-600 hover:text-white text-xs transition">
               <i class="fas fa-play"></i>
             </button>
-            <a href="\${clip.audioUrl}" download target="_blank" class="p-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs transition">
+            <a href="/api/v1/audio/\${clip.id}?download=true&title=\${encodeURIComponent(clip.title)}" class="p-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs transition" title="Download MP3">
               <i class="fas fa-download"></i>
             </a>
           </div>
@@ -478,7 +471,7 @@ function getDashboardHTML() {
       \`).join('');
     }
 
-    // RENDER TABEL QUEUE LENGKAP DETAIL ID
+    // RENDER QUEUE
     function renderQueueTable() {
       const tbody = document.getElementById('queueTableBody');
       if (!tasks.length) {
@@ -499,7 +492,7 @@ function getDashboardHTML() {
                 <td class="p-3.5 font-mono text-[11px] text-indigo-400">\${c.id}</td>
                 <td class="p-3.5 text-center"><span class="text-emerald-400 font-bold bg-emerald-500/10 px-2 py-0.5 rounded text-[10px]">Completed</span></td>
                 <td class="p-3.5 text-center">
-                  <button onclick="openMiniPlayer('\${c.audioUrl}', '\${c.title}', '\${c.tags}', '\${c.imageUrl}', '\${c.id}')" class="px-3 py-1 bg-orange-600 hover:bg-orange-500 text-white rounded-lg text-xs font-bold transition">
+                  <button onclick="openMiniPlayer('\${c.id}', '\${c.title}', '\${c.tags}', '\${c.imageUrl}')" class="px-3 py-1 bg-orange-600 hover:bg-orange-500 text-white rounded-lg text-xs font-bold transition">
                     <i class="fas fa-play mr-1"></i>Play
                   </button>
                 </td>
@@ -521,16 +514,21 @@ function getDashboardHTML() {
       tbody.innerHTML = rows;
     }
 
-    // FUNGSI POPUP MINI PLAYER (BERSIH & BISA PLAY)
-    function openMiniPlayer(url, title, tags, cover, audioId) {
+    // FUNGSI POPUP MINI PLAYER (PUTAR LANGSUNG DARI JALUR STREAMING INTERNAL)
+    function openMiniPlayer(audioId, title, tags, cover) {
       document.getElementById('mpTitle').textContent = title;
       document.getElementById('mpTags').textContent = tags;
       document.getElementById('mpCover').src = cover;
-      document.getElementById('mpAudioId').textContent = 'Audio ID: ' + (audioId || '-');
-      document.getElementById('mpDownload').href = url;
+      document.getElementById('mpAudioId').textContent = 'ID: ' + audioId;
+      
+      // Mengarah ke server Railway Anda sendiri (Anti-Blokir & Download MP3 Asli)
+      const streamUrl = '/api/v1/audio/' + audioId;
+      const downloadUrl = '/api/v1/audio/' + audioId + '?download=true&title=' + encodeURIComponent(title);
+      
+      document.getElementById('mpDownload').href = downloadUrl;
 
       const audio = document.getElementById('mpAudio');
-      audio.src = url;
+      audio.src = streamUrl;
       audio.load();
 
       const modal = document.getElementById('miniPlayerModal');
@@ -561,7 +559,6 @@ function getDashboardHTML() {
       }
     }
 
-    // GANTI TAMPILAN VIEW LEWAT SLIDER MENU
     function switchTab(view) {
       ['dashboard', 'generator', 'queue', 'logs'].forEach(v => {
         document.getElementById(\`view-\${v}\`).classList.toggle('hidden', v !== view);
