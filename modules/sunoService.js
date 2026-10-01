@@ -39,19 +39,25 @@ class SunoService {
     return config;
   }
 
+  // AUTO-GUARD: Cek masa aktif token sebelum melakukan aktivitas apa pun
   async ensureValidSession(accountId) {
     const account = this.accountManager.getAccountRaw(accountId);
     if (!account) throw new Error(`Akun tidak ditemukan: ${accountId}`);
 
     let session = this.sessionManager.loadSession(accountId);
     if (!session || !session.bearerToken) {
-      throw new Error(`Tidak ada sesi aktif. Silakan import cookie.`);
+      throw new Error(`Tidak ada sesi aktif untuk ${accountId}.`);
+    }
+
+    // Jika token sudah mau habis (kurang dari 5 menit), perpanjang saat ini juga!
+    if (this.sessionManager.isTokenExpiring(session.bearerToken)) {
+      await this.sessionManager.refreshToken(accountId);
+      session = this.sessionManager.loadSession(accountId);
     }
 
     return { account, session };
   }
 
-  // MENARIK SEMUA LAGU DARI CLOUD SUNO (AGAR TIDAK HILANG)
   async getMyFeed(accountIdOrNull = null) {
     const accountId = accountIdOrNull || this.accountManager.getOptimalAccount()?.id;
     if (!accountId) return [];
@@ -80,7 +86,6 @@ class SunoService {
       });
     } catch (err) {
       if (err.response?.status === 401) {
-        // Coba perpanjang token otomatis
         const refreshed = await this.sessionManager.refreshToken(accountId);
         if (refreshed) return this.getMyFeed(accountId);
       }
@@ -115,7 +120,7 @@ class SunoService {
     let config = this.getAxiosConfig(account, session);
 
     const { prompt = '', lyrics = '', style = '', title = '', instrumental = false, modelVersion = 'v6-mini' } = options;
-    const modelMap = { 'v6-mini': 'chirp-v6-mini', 'v6': 'chirp-v6-0', 'v4': 'chirp-v4', 'v3.5': 'chirp-v3-5' };
+    const modelMap = { 'v6-mini': 'chirp-v6-mini', 'v6': 'chirp-v6-0', 'v6-wild': 'chirp-v6-wild', 'v4': 'chirp-v4', 'v3.5': 'chirp-v3-5' };
     const selectedMv = modelMap[modelVersion] || 'chirp-v6-mini';
 
     let payload = { make_instrumental: !!instrumental, mv: selectedMv };
@@ -137,7 +142,7 @@ class SunoService {
         res = await axios.post(`${this.apiBase}/api/generate/v2/`, payload, config);
       } catch (errPost) {
         if (errPost.response?.status === 401) {
-          // Token mati, perpanjang dan ulangi
+          // Token expired, perpanjang otomatis detik itu juga lalu ulangi request!
           const refreshed = await this.sessionManager.refreshToken(accountId);
           if (refreshed) {
             session = this.sessionManager.loadSession(accountId);
