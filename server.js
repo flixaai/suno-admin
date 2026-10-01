@@ -97,59 +97,41 @@ app.get('/health', (req, res) => {
   });
 });
 
-// Serve dashboard
 app.get('/', (req, res) => {
   res.redirect('/admin/dashboard');
 });
 
-// Scheduled tasks
-cron.schedule('*/5 * * * *', async () => {
-  logger.info('Running scheduled session health check...');
-  try {
-    const accounts = accountManager.getAllAccounts();
-    for (const account of accounts) {
-      await sessionManager.healthCheck(account.id);
-    }
-    io.emit('accounts:updated', accountManager.getAllAccounts());
-  } catch (err) {
-    logger.error('Session health check error:', err);
-  }
-});
-
-cron.schedule('*/2 * * * *', async () => {
-  logger.info('Running scheduled proxy check...');
-  try {
-    const accounts = accountManager.getAllAccounts();
-    for (const account of accounts) {
-      if (account.proxy) {
-        const status = await proxyChecker.check(account.proxy);
-        accountManager.updateAccount(account.id, { statusProxy: status ? 'online' : 'offline' });
-      }
-    }
-    io.emit('accounts:updated', accountManager.getAllAccounts());
-  } catch (err) {
-    logger.error('Proxy check error:', err);
-  }
-});
-
-cron.schedule('*/10 * * * *', async () => {
-  logger.info('Running scheduled credit check...');
+// =========================================================================
+// FITUR AUTOPILOT 24/7: REFRESH TOKEN TIAP 15 MENIT SEKALI SECARA OTOMATIS!
+// =========================================================================
+cron.schedule('*/15 * * * *', async () => {
+  logger.info('Running Auto-Pilot token keep-alive...');
   try {
     const accounts = accountManager.getAllAccounts();
     for (const account of accounts) {
       if (account.statusCookie === 'active') {
-        try {
-          const credits = await sunoService.checkCredits(account.id);
-          accountManager.updateAccount(account.id, { creditsLeft: credits });
-        } catch (err) {
-          logger.error(`Credit check failed for ${account.id}:`, err.message);
-        }
+        await sessionManager.refreshToken(account.id);
+        const credits = await sunoService.checkCredits(account.id);
+        io.emit('account:credits', { id: account.id, credits });
+      }
+    }
+  } catch (err) {
+    logger.error('Keep-alive token error:', err.message);
+  }
+});
+
+// Scheduled task: Credit check berkala
+cron.schedule('*/10 * * * *', async () => {
+  try {
+    const accounts = accountManager.getAllAccounts();
+    for (const account of accounts) {
+      if (account.statusCookie === 'active') {
+        const credits = await sunoService.checkCredits(account.id);
+        accountManager.updateAccount(account.id, { creditsLeft: credits });
       }
     }
     io.emit('accounts:updated', accountManager.getAllAccounts());
-  } catch (err) {
-    logger.error('Credit check error:', err);
-  }
+  } catch (err) {}
 });
 
 // Error handling
@@ -158,26 +140,13 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: 'Internal Server Error', message: err.message });
 });
 
-process.on('uncaughtException', (err) => {
-  logger.error('Uncaught Exception:', err);
-});
-
-process.on('unhandledRejection', (err) => {
-  logger.error('Unhandled Rejection:', err);
-});
-
-process.on('SIGTERM', async () => {
-  logger.info('SIGTERM received, shutting down gracefully...');
-  await browserManager.closeAll();
-  server.close(() => process.exit(0));
-});
+process.on('uncaughtException', (err) => { logger.error('Uncaught Exception:', err); });
+process.on('unhandledRejection', (err) => { logger.error('Unhandled Rejection:', err); });
 
 // Start server
 const PORT = process.env.PORT || 3000;
 const HOST = process.env.HOST || '0.0.0.0';
 
 server.listen(PORT, HOST, () => {
-  logger.info(`🚀 Suno Admin Dashboard running on http://${HOST}:${PORT}`);
-  logger.info(`📊 Dashboard: http://${HOST}:${PORT}/admin/dashboard`);
-  logger.info(`🔌 API: http://${HOST}:${PORT}/api/v1/`);
+  logger.info(`🚀 Suno Engine running on http://${HOST}:${PORT}`);
 });
