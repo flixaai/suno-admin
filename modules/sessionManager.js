@@ -1,6 +1,6 @@
 const fs = require('fs');
 const path = require('path');
-const axios = require('axios');
+const puppeteer = require('puppeteer');
 
 class SessionManager {
   constructor(browserManager, accountManager) {
@@ -8,6 +8,9 @@ class SessionManager {
     this.accountManager = accountManager;
     this.otpCallbacks = new Map();
     this.loginLocks = new Set();
+    
+    // Kredensial Superkomputer Bright Data Milik Anda
+    this.brightDataWS = process.env.BRIGHT_DATA_WS || 'wss://brd-customer-hl_c154ff17-zone-suno_browser:ar1oslh5xtvr@brd.superproxy.io:9222';
   }
 
   decodeJwt(token) {
@@ -24,7 +27,7 @@ class SessionManager {
     const payload = this.decodeJwt(token);
     if (!payload || !payload.exp) return true;
     const now = Math.floor(Date.now() / 1000);
-    return payload.exp - now < 300;
+    return payload.exp - now < 300; // kurang dari 5 menit
   }
 
   importCookieData(accountId, cookieJsonString) {
@@ -52,51 +55,50 @@ class SessionManager {
     }
   }
 
+  // =========================================================================
+  // SKENARIO 1: PENJAGA SESI OTOMATIS MENGGUNAKAN SUPERKOMPUTER BRIGHT DATA
+  // Membuka Suno di cloud selama 3 detik untuk mengambil token resmi baru
+  // =========================================================================
   async refreshToken(accountId) {
+    let browser = null;
     try {
       const session = this.loadSession(accountId);
-      if (!session || !session.cookies || !session.bearerToken) return false;
+      if (!session || !session.cookies) return false;
 
-      const payload = this.decodeJwt(session.bearerToken);
-      const sessionId = payload?.sid;
+      logger.info(`[Bright Data Keep-Alive] Menjalankan Penjaga Sesi Cloud untuk ${accountId}...`);
 
-      logger.info(`[Auto-Refresh] Memperbarui sesi Suno secara mandiri untuk ${accountId}...`);
+      browser = await puppeteer.connect({
+        browserWSEndpoint: this.brightDataWS
+      });
 
-      const headers = {
-        'Cookie': session.cookies,
-        'Origin': 'https://suno.com',
-        'Referer': 'https://suno.com/',
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
-      };
+      const page = await browser.newPage();
 
-      let newToken = null;
+      // Pasang cookie akun Anda ke dalam browser Bright Data
+      const cookieObjects = session.cookies.split('; ').map(c => {
+        const [name, ...val] = c.split('=');
+        return {
+          name: name.trim(),
+          value: val.join('=').trim(),
+          domain: '.suno.com',
+          path: '/'
+        };
+      });
 
-      // Jalur 1: Meminta Token Baru Berdasarkan Session ID
-      if (sessionId) {
-        try {
-          const res = await axios.post(
-            `https://clerk.suno.com/v1/client/sessions/${sessionId}/tokens?_clerk_js_version=5.0.0`,
-            {},
-            { headers, timeout: 15000 }
-          );
-          newToken = res.data?.jwt || res.data?.response?.jwt;
-        } catch (e) {}
-      }
+      await page.setCookie(...cookieObjects);
 
-      // Jalur 2: Meminta Token Baru Berdasarkan Client State
-      if (!newToken) {
-        try {
-          const res = await axios.get('https://clerk.suno.com/v1/client?_clerk_js_version=5.0.0', {
-            headers,
-            timeout: 15000
-          });
-          const client = res.data?.response;
-          if (client && client.sessions && client.sessions.length > 0) {
-            const active = client.sessions.find(s => s.status === 'active') || client.sessions[0];
-            newToken = active.last_active_token?.jwt;
-          }
-        } catch (e) {}
-      }
+      // Buka Suno secara instan
+      await page.goto('https://suno.com', { waitUntil: 'domcontentloaded', timeout: 30000 });
+
+      // Tunggu Clerk siap di browser (hanya 3-5 detik)
+      await page.waitForFunction(() => window.Clerk && window.Clerk.isReady, { timeout: 20000 });
+
+      // Minta token baru langsung dari Clerk resmi di dalam browser
+      const newToken = await page.evaluate(async () => {
+        if (window.Clerk && window.Clerk.session) {
+          return await window.Clerk.session.getToken();
+        }
+        return null;
+      });
 
       if (newToken) {
         session.bearerToken = newToken;
@@ -106,11 +108,15 @@ class SessionManager {
           statusCookie: 'active',
           lastLogin: new Date().toISOString()
         });
-        logger.info(`[Auto-Refresh SUCCESS] Token berhasil diperpanjang 1 jam ke depan!`);
+        logger.info(`[Bright Data SUCCESS] Token berhasil diperpanjang 1 jam ke depan secara otomatis!`);
         return true;
       }
     } catch (err) {
-      logger.warn(`[Auto-Refresh Warning] Gagal refresh: ${err.message}`);
+      logger.warn(`[Bright Data Keep-Alive Error] ${err.message}`);
+    } finally {
+      if (browser) {
+        try { await browser.close(); } catch(e) {}
+      }
     }
     return false;
   }
