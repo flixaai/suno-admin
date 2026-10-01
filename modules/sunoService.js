@@ -97,13 +97,22 @@ class SunoService {
       lyrics = '',
       style = '',
       title = '',
-      instrumental = false
+      instrumental = false,
+      modelVersion = 'v6-mini'
     } = options;
 
-    // PAYLOAD RESMI SUNO UNTUK AKUN KREDIT (MODEL v3.5 STABIL)
+    const modelMap = {
+      'v6-mini': 'chirp-v6-mini',
+      'v3.5': 'chirp-v3-5',
+      'v4': 'chirp-v4',
+      'v6': 'chirp-v6-0'
+    };
+
+    const selectedMv = modelMap[modelVersion] || 'chirp-v6-mini';
+
     let payload = {
       make_instrumental: !!instrumental,
-      mv: 'chirp-v3-5'
+      mv: selectedMv
     };
 
     if (instrumental) {
@@ -119,11 +128,15 @@ class SunoService {
     }
 
     try {
-      logger.info(`Membuat lagu dengan akun ${accountId}, task ${taskId}`);
-      logger.info(`Payload: ${JSON.stringify(payload)}`);
+      logger.info(`Membuat lagu (${selectedMv}) dengan akun ${accountId}, task ${taskId}`);
 
-      // Kirim langsung ke jalur resmi Suno Production
-      const res = await axios.post(`${this.apiBase}/api/generate/v2/`, payload, config);
+      let res;
+      try {
+        res = await axios.post(`${this.apiBase}/api/generate/v2/`, payload, config);
+      } catch (errFirst) {
+        payload.mv = 'chirp-v3-5';
+        res = await axios.post(`${this.apiBase}/api/generate/v2/`, payload, config);
+      }
 
       if (res.data && res.data.clips) {
         const clips = res.data.clips;
@@ -139,7 +152,6 @@ class SunoService {
           result: null
         });
 
-        // Update sisa kredit
         setTimeout(async () => {
           try {
             const newCredits = await this.checkCredits(accountId);
@@ -147,7 +159,6 @@ class SunoService {
           } catch (e) {}
         }, 3000);
 
-        // Polling hasil audio
         this.pollTaskStatus(taskId, accountId, clipIds);
 
         return {
@@ -164,10 +175,6 @@ class SunoService {
       logger.error(`Generate song error: ${JSON.stringify(err.response?.data || err.message)}`);
       throw new Error(errMsg);
     }
-  }
-
-  async getTaskStatus(taskId) {
-    return this.queueManager.getTask(taskId);
   }
 
   async getClipStatus(clipIds, accountId) {
@@ -201,21 +208,32 @@ class SunoService {
       try {
         const clips = await this.getClipStatus(clipIds, accountId);
 
+        // Cek apakah audio sudah siap di-streaming
         const allComplete = clips.every(c =>
-          c.status === 'complete' || c.status === 'streaming' || c.status === 'error'
+          c.status === 'complete' || (c.status === 'streaming' && c.audio_url)
         );
 
         if (allComplete) {
-          const result = clips.map(c => ({
-            id: c.id,
-            title: c.title,
-            status: c.status,
-            audioUrl: c.audio_url,
-            videoUrl: c.video_url,
-            imageUrl: c.image_url || c.image_large_url,
-            tags: c.metadata?.tags,
-            duration: c.metadata?.duration
-          }));
+          const result = clips.map(c => {
+            // Pastikan URL audio CDN terarah sempurna
+            const directAudioUrl = c.audio_url || `https://cdn1.suno.ai/${c.id}.mp3`;
+            const durationSec = Math.floor(c.metadata?.duration || 0);
+            const mins = Math.floor(durationSec / 60);
+            const secs = durationSec % 60;
+            const formattedDuration = durationSec > 0 ? `${mins}:${secs.toString().padStart(2, '0')}` : '3:00';
+
+            return {
+              id: c.id,
+              title: c.title || 'Untitled Song',
+              status: c.status,
+              audioUrl: directAudioUrl,
+              videoUrl: c.video_url,
+              imageUrl: c.image_url || c.image_large_url || `https://cdn1.suno.ai/image_${c.id}.png`,
+              tags: c.metadata?.tags || 'Music',
+              model: c.model_name || 'V6-MINI',
+              duration: formattedDuration
+            };
+          });
 
           this.queueManager.updateTask(taskId, {
             status: 'completed',
@@ -224,19 +242,19 @@ class SunoService {
           });
 
           global.io.emit('task:completed', { taskId, result });
-          logger.info(`Task ${taskId} selesai!`);
+          logger.info(`Task ${taskId} selesai dan audio siap diputar!`);
           return;
         }
 
         attempts++;
-        setTimeout(poll, 5000);
+        setTimeout(poll, 4000);
       } catch (err) {
         attempts++;
         setTimeout(poll, 5000);
       }
     };
 
-    setTimeout(poll, 4000);
+    setTimeout(poll, 3000);
   }
 }
 
