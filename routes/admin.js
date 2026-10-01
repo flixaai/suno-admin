@@ -4,47 +4,26 @@ const path = require('path');
 const { authMiddleware, generateToken, ADMIN_USERNAME, ADMIN_PASSWORD } = require('../middleware/auth');
 const { loginLimiter } = require('../middleware/rateLimiter');
 
-// Login page
-router.get('/login', (req, res) => {
-  res.send(getLoginHTML());
-});
-
-// Login action
+router.get('/login', (req, res) => { res.send(getLoginHTML()); });
 router.post('/login', loginLimiter, (req, res) => {
   const { username, password } = req.body;
-
   if (username === ADMIN_USERNAME && password === ADMIN_PASSWORD) {
     const token = generateToken(username);
-    res.cookie('auth_token', token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      maxAge: 24 * 60 * 60 * 1000
-    });
+    res.cookie('auth_token', token, { httpOnly: true, secure: process.env.NODE_ENV === 'production', maxAge: 24 * 60 * 60 * 1000 });
     return res.json({ success: true, token });
   }
-
   return res.status(401).json({ success: false, error: 'Invalid credentials' });
 });
 
-// Logout
-router.get('/logout', (req, res) => {
-  res.clearCookie('auth_token');
-  res.redirect('/admin/login');
-});
-
-// Dashboard (main page)
-router.get('/dashboard', authMiddleware, (req, res) => {
-  res.send(getDashboardHTML());
-});
+router.get('/logout', (req, res) => { res.clearCookie('auth_token'); res.redirect('/admin/login'); });
+router.get('/dashboard', authMiddleware, (req, res) => { res.send(getDashboardHTML()); });
 
 function getLoginHTML() {
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Suno Studio - Login</title>
-  <script src="https://cdn.tailwindcss.com"></script>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Suno Studio - Login</title><script src="https://cdn.tailwindcss.com"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
   <style> body { font-family: 'Inter', sans-serif; background: #09090b; } </style>
 </head>
@@ -73,24 +52,16 @@ function getLoginHTML() {
       e.preventDefault();
       const btn = document.getElementById('loginBtn');
       const err = document.getElementById('loginError');
-      btn.textContent = 'Signing in...';
-      btn.disabled = true;
-      err.classList.add('hidden');
+      btn.textContent = 'Signing in...'; btn.disabled = true; err.classList.add('hidden');
       try {
         const res = await fetch('/admin/login', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            username: document.getElementById('username').value,
-            password: document.getElementById('password').value
-          })
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username: document.getElementById('username').value, password: document.getElementById('password').value })
         });
         const data = await res.json();
         if (data.success) { window.location.href = '/admin/dashboard'; }
         else { err.textContent = data.error || 'Login failed'; err.classList.remove('hidden'); }
-      } catch (e) {
-        err.textContent = 'Connection error'; err.classList.remove('hidden');
-      }
+      } catch (e) { err.textContent = 'Connection error'; err.classList.remove('hidden'); }
       btn.textContent = 'Sign In'; btn.disabled = false;
     });
   </script>
@@ -102,8 +73,8 @@ function getDashboardHTML() {
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="referrer" content="no-referrer">
   <title>Suno AI Studio & Dashboard</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="/socket.io/socket.io.js"></script>
@@ -134,7 +105,7 @@ function getDashboardHTML() {
       <div class="flex items-center px-3 py-1.5 rounded-full bg-[#181924] border border-[#242738] space-x-2 text-xs">
         <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
         <span class="text-zinc-400">Credits:</span>
-        <span id="topCreditDisplay" class="text-orange-400 font-bold">0</span>
+        <span id="topCreditDisplay" class="text-orange-400 font-bold">260</span>
       </div>
       <button onclick="refreshAll()" class="p-2 rounded-xl bg-zinc-800/80 hover:bg-zinc-700 text-zinc-300 transition" title="Refresh Data"><i class="fas fa-sync-alt text-xs"></i></button>
       <button onclick="toggleDrawer(true)" class="p-2 px-3 rounded-xl bg-orange-600 hover:bg-orange-500 text-white font-bold text-xs flex items-center space-x-1.5 transition shadow-lg shadow-orange-600/20">
@@ -179,16 +150,16 @@ function getDashboardHTML() {
     <div id="view-dashboard">
       <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         <div class="suno-card rounded-2xl p-4">
-          <span class="text-[11px] text-zinc-500 uppercase tracking-wider font-semibold">Total Saldo</span>
-          <div id="statTotalCredits" class="text-2xl font-black text-orange-400 mt-1">0</div>
+          <span class="text-[11px] text-zinc-500 uppercase tracking-wider font-semibold">Saldo Kredit Aktif</span>
+          <div id="statTotalCredits" class="text-2xl font-black text-orange-400 mt-1">260</div>
         </div>
         <div class="suno-card rounded-2xl p-4">
           <span class="text-[11px] text-zinc-500 uppercase tracking-wider font-semibold">Active Sessions</span>
-          <div id="statActiveSessions" class="text-2xl font-black text-emerald-400 mt-1">0</div>
+          <div id="statActiveSessions" class="text-2xl font-black text-emerald-400 mt-1">1</div>
         </div>
         <div class="suno-card rounded-2xl p-4">
           <span class="text-[11px] text-zinc-500 uppercase tracking-wider font-semibold">Total Accounts</span>
-          <div id="statTotalAccounts" class="text-2xl font-black text-white mt-1">0</div>
+          <div id="statTotalAccounts" class="text-2xl font-black text-white mt-1">1</div>
         </div>
         <div class="suno-card rounded-2xl p-4">
           <span class="text-[11px] text-zinc-500 uppercase tracking-wider font-semibold">Completed Songs</span>
@@ -317,7 +288,7 @@ function getDashboardHTML() {
 
   </main>
 
-  <!-- POPUP MINI PLAYER (PUTAR & DOWNLOAD MP3 BERSIH DARI SERVER SENDIRI) -->
+  <!-- POPUP MINI PLAYER -->
   <div id="miniPlayerModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/80 backdrop-blur-sm p-4">
     <div class="suno-card rounded-3xl p-6 w-full max-w-sm text-center shadow-2xl relative border border-orange-500/30">
       <button onclick="closeMiniPlayer()" class="absolute top-4 right-4 text-zinc-400 hover:text-white p-2"><i class="fas fa-times text-lg"></i></button>
@@ -326,7 +297,6 @@ function getDashboardHTML() {
       <h3 id="mpTitle" class="text-sm font-bold text-white truncate">Title</h3>
       <p id="mpTags" class="text-xs text-zinc-400 truncate mt-1">Tags</p>
       
-      <!-- Audio Player Mengarah ke Endpoint Internal Server /api/v1/audio -->
       <div class="mt-4">
         <audio id="mpAudio" controls class="w-full h-10"></audio>
       </div>
@@ -418,7 +388,8 @@ function getDashboardHTML() {
           <td class="p-3.5 text-center font-bold text-orange-400">\${acc.creditsLeft || 0}</td>
           <td class="p-3.5 text-center">
             <button onclick="checkCredits('\${acc.id}')" class="px-2.5 py-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg text-xs mr-2"><i class="fas fa-coins mr-1"></i>Cek</button>
-            <button onclick="deleteAccount('\${acc.id}')" class="px-2.5 py-1 bg-red-600/20 text-red-400 rounded-lg text-xs"><i class="fas fa-trash"></i></button>
+            <!-- HAPUS AKUN 1 SENTUHAN TANPA CONFIRM POPUP MACET DI HP -->
+            <button onclick="deleteAccountDirect('\${acc.id}')" class="px-2.5 py-1 bg-red-600 hover:bg-red-500 text-white rounded-lg text-xs font-bold transition shadow-sm"><i class="fas fa-trash"></i></button>
           </td>
         </tr>
       \`).join('');
@@ -431,7 +402,6 @@ function getDashboardHTML() {
       }
     }
 
-    // RENDER LIBRARY
     function renderLibrary() {
       const c = document.getElementById('libraryContainer');
       if (!libraryClips.length) {
@@ -471,7 +441,6 @@ function getDashboardHTML() {
       \`).join('');
     }
 
-    // RENDER QUEUE
     function renderQueueTable() {
       const tbody = document.getElementById('queueTableBody');
       if (!tasks.length) {
@@ -514,14 +483,12 @@ function getDashboardHTML() {
       tbody.innerHTML = rows;
     }
 
-    // FUNGSI POPUP MINI PLAYER (PUTAR LANGSUNG DARI JALUR STREAMING INTERNAL)
     function openMiniPlayer(audioId, title, tags, cover) {
       document.getElementById('mpTitle').textContent = title;
       document.getElementById('mpTags').textContent = tags;
       document.getElementById('mpCover').src = cover;
       document.getElementById('mpAudioId').textContent = 'ID: ' + audioId;
       
-      // Mengarah ke server Railway Anda sendiri (Anti-Blokir & Download MP3 Asli)
       const streamUrl = '/api/v1/audio/' + audioId;
       const downloadUrl = '/api/v1/audio/' + audioId + '?download=true&title=' + encodeURIComponent(title);
       
@@ -546,7 +513,6 @@ function getDashboardHTML() {
       modal.classList.remove('flex');
     }
 
-    // SLIDER DRAWER MENU
     function toggleDrawer(open) {
       const drawer = document.getElementById('sideDrawer');
       const overlay = document.getElementById('drawerOverlay');
@@ -606,7 +572,7 @@ function getDashboardHTML() {
         if (res.success) {
           closeModal('importCookieModal');
           document.getElementById('importCookieForm').reset();
-          showToast('SUCCESS', 'Akun berhasil AKTIF!', 'success');
+          showToast('SUCCESS', 'Akun berhasil diperbarui!', 'success');
         } else {
           showToast('ERROR', res.error, 'error');
         }
@@ -614,7 +580,13 @@ function getDashboardHTML() {
     });
 
     function checkCredits(id) { socket.emit('account:checkCredits', { id }); }
-    function deleteAccount(id) { if (confirm('Hapus akun ini?')) socket.emit('account:delete', { id }); }
+
+    // HAPUS LANGSUNG TANPA CONFIRM POPUP YANG BIKIN MACET DI HP
+    function deleteAccountDirect(id) {
+      socket.emit('account:delete', { id });
+      showToast('INFO', 'Menghapus akun...', 'info');
+    }
+
     function refreshAll() { socket.emit('refresh:all', {}); }
 
     function openImportCookieModal() {
