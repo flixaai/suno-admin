@@ -37,11 +37,6 @@ router.get('/dashboard', authMiddleware, (req, res) => {
   res.send(getDashboardHTML());
 });
 
-// Accounts page
-router.get('/accounts', authMiddleware, (req, res) => {
-  res.redirect('/admin/dashboard');
-});
-
 // API for stats
 router.get('/api/stats', authMiddleware, (req, res) => {
   const accounts = req.app.locals.accountManager.getAllAccounts();
@@ -62,41 +57,31 @@ function getLoginHTML() {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Suno Admin - Login</title>
+  <title>Suno AI - Login</title>
   <script src="https://cdn.tailwindcss.com"></script>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
-    body { font-family: 'Inter', sans-serif; }
-    .glass { background: rgba(255,255,255,0.05); backdrop-filter: blur(20px); border: 1px solid rgba(255,255,255,0.1); }
-    .gradient-bg { background: linear-gradient(135deg, #0f0c29 0%, #302b63 50%, #24243e 100%); }
-    .glow { box-shadow: 0 0 40px rgba(99, 102, 241, 0.3); }
+    body { font-family: 'Inter', sans-serif; background: #09090b; }
   </style>
 </head>
-<body class="gradient-bg min-h-screen flex items-center justify-center">
-  <div class="glass rounded-2xl p-8 w-full max-w-md glow">
+<body class="min-h-screen flex items-center justify-center p-4">
+  <div class="bg-zinc-900 border border-zinc-800 rounded-3xl p-8 w-full max-w-md shadow-2xl">
     <div class="text-center mb-8">
-      <div class="text-4xl mb-2">🎵</div>
-      <h1 class="text-2xl font-bold text-white">Suno Admin</h1>
-      <p class="text-gray-400 text-sm mt-1">Login to Dashboard</p>
+      <div class="inline-flex p-3 bg-orange-500/10 rounded-2xl text-orange-500 text-3xl mb-3">🎵</div>
+      <h1 class="text-2xl font-bold text-white tracking-tight">Suno Studio</h1>
+      <p class="text-zinc-400 text-sm mt-1">Sign in to your private engine</p>
     </div>
     <form id="loginForm" class="space-y-4">
       <div>
-        <label class="block text-sm text-gray-300 mb-1">Username</label>
-        <input type="text" id="username" name="username" required
-          class="w-full px-4 py-3 rounded-xl bg-white/10 border border-white/20 text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition"
-          placeholder="admin">
+        <label class="block text-xs uppercase tracking-wider font-semibold text-zinc-400 mb-1.5">Username</label>
+        <input type="text" id="username" required class="w-full px-4 py-3 rounded-xl bg-zinc-800/80 border border-zinc-700/80 text-white placeholder-zinc-500 focus:outline-none focus:border-orange-500 transition text-sm" placeholder="admin">
       </div>
       <div>
-        <label class="block text-sm text-gray-300 mb-1">Password</label>
-        <input type="password" id="password" name="password" required
-          class="w-full px-4 py-3 rounded-xl bg-white/10 border border-white/20 text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition"
-          placeholder="••••••••">
+        <label class="block text-xs uppercase tracking-wider font-semibold text-zinc-400 mb-1.5">Password</label>
+        <input type="password" id="password" required class="w-full px-4 py-3 rounded-xl bg-zinc-800/80 border border-zinc-700/80 text-white placeholder-zinc-500 focus:outline-none focus:border-orange-500 transition text-sm" placeholder="••••••••">
       </div>
-      <div id="loginError" class="hidden text-red-400 text-sm text-center"></div>
-      <button type="submit" id="loginBtn"
-        class="w-full py-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold transition transform hover:scale-[1.02] active:scale-[0.98]">
-        Sign In
-      </button>
+      <div id="loginError" class="hidden text-red-400 text-xs text-center"></div>
+      <button type="submit" id="loginBtn" class="w-full py-3.5 rounded-xl bg-orange-600 hover:bg-orange-500 text-white font-bold transition shadow-lg shadow-orange-600/20 text-sm">Sign In</button>
     </form>
   </div>
   <script>
@@ -107,7 +92,6 @@ function getLoginHTML() {
       btn.textContent = 'Signing in...';
       btn.disabled = true;
       err.classList.add('hidden');
-
       try {
         const res = await fetch('/admin/login', {
           method: 'POST',
@@ -118,18 +102,12 @@ function getLoginHTML() {
           })
         });
         const data = await res.json();
-        if (data.success) {
-          window.location.href = '/admin/dashboard';
-        } else {
-          err.textContent = data.error || 'Login failed';
-          err.classList.remove('hidden');
-        }
+        if (data.success) { window.location.href = '/admin/dashboard'; }
+        else { err.textContent = data.error || 'Login failed'; err.classList.remove('hidden'); }
       } catch (e) {
-        err.textContent = 'Connection error';
-        err.classList.remove('hidden');
+        err.textContent = 'Connection error'; err.classList.remove('hidden');
       }
-      btn.textContent = 'Sign In';
-      btn.disabled = false;
+      btn.textContent = 'Sign In'; btn.disabled = false;
     });
   </script>
 </body>
@@ -142,186 +120,173 @@ function getDashboardHTML() {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Suno AI Admin Dashboard</title>
+  <meta name="referrer" content="no-referrer">
+  <title>Suno AI Studio</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="/socket.io/socket.io.js"></script>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
   <style>
-    body { font-family: 'Inter', sans-serif; }
-    .glass { background: rgba(255,255,255,0.03); backdrop-filter: blur(20px); border: 1px solid rgba(255,255,255,0.08); }
-    .glass-card { background: rgba(255,255,255,0.05); backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.1); }
-    .gradient-bg { background: linear-gradient(135deg, #0a0a1a 0%, #1a1a3e 50%, #0f0f2e 100%); }
-    .glow-indigo { box-shadow: 0 0 30px rgba(99,102,241,0.15); }
-    .glow-green { box-shadow: 0 0 30px rgba(34,197,94,0.15); }
-    .stat-card { transition: all 0.3s ease; }
-    .stat-card:hover { transform: translateY(-2px); }
-    .pulse-dot { animation: pulse-dot 2s infinite; }
-    @keyframes pulse-dot { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
-    .table-row { transition: all 0.2s ease; }
-    .table-row:hover { background: rgba(255,255,255,0.05); }
-    .modal-overlay { background: rgba(0,0,0,0.7); backdrop-filter: blur(5px); }
-    .toast-enter { animation: slideIn 0.3s ease; }
-    @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
-    .btn-action { transition: all 0.2s ease; }
-    .btn-action:hover { transform: scale(1.03); }
-    .tab-active { border-bottom: 2px solid #6366f1; color: #818cf8; }
+    body { font-family: 'Inter', sans-serif; background-color: #0b0b0e; }
+    .suno-card { background-color: #121318; border: 1px solid #1e2029; }
+    .suno-card:hover { border-color: #2b2e3b; }
+    .suno-input { background-color: #181920; border: 1px solid #232530; }
+    .suno-input:focus { border-color: #ff5e36; }
+    .suno-tab-active { border-bottom: 2px solid #ff5e36; color: #ff5e36; }
+    ::-webkit-scrollbar { width: 4px; height: 4px; }
+    ::-webkit-scrollbar-thumb { background: #262836; border-radius: 4px; }
   </style>
 </head>
-<body class="gradient-bg min-h-screen text-gray-200">
+<body class="text-zinc-200 min-h-screen flex flex-col pb-24">
 
-  <!-- Header -->
-  <header class="glass border-b border-white/10 sticky top-0 z-40">
-    <div class="max-w-[1600px] mx-auto px-6 py-4 flex items-center justify-between">
-      <div class="flex items-center space-x-3">
-        <span class="text-3xl">🎵</span>
-        <div>
-          <h1 class="text-xl font-bold text-white">Suno AI Studio & Admin</h1>
-          <p class="text-xs text-gray-500">Multi-Account & Music Generator</p>
-        </div>
+  <!-- Top Navigation Bar -->
+  <header class="bg-[#101116] border-b border-[#1c1d26] sticky top-0 z-40 px-6 py-3.5 flex items-center justify-between">
+    <div class="flex items-center space-x-3">
+      <div class="w-8 h-8 rounded-xl bg-orange-600 flex items-center justify-center font-black text-white text-lg shadow-lg shadow-orange-600/30">S</div>
+      <div>
+        <h1 class="text-sm font-bold text-white tracking-wide">SUNO <span class="text-orange-500 font-normal">STUDIO</span></h1>
+        <p class="text-[10px] text-zinc-500 font-medium">AI Music Generation Engine</p>
       </div>
-      <div class="flex items-center space-x-4">
-        <div id="connectionStatus" class="flex items-center space-x-2 text-sm">
-          <span class="w-2 h-2 rounded-full bg-green-500 pulse-dot"></span>
-          <span class="text-gray-400">Connected</span>
-        </div>
-        <button onclick="refreshAll()" class="p-2 rounded-lg hover:bg-white/10 transition" title="Refresh">
-          <i class="fas fa-sync-alt text-gray-400"></i>
-        </button>
-        <a href="/admin/logout" class="p-2 rounded-lg hover:bg-white/10 transition" title="Logout">
-          <i class="fas fa-sign-out-alt text-gray-400"></i>
-        </a>
+    </div>
+    
+    <div class="flex items-center space-x-3">
+      <div class="flex items-center px-3 py-1.5 rounded-full bg-[#181922] border border-[#242634] space-x-2 text-xs">
+        <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+        <span class="text-zinc-400 font-medium">Credits:</span>
+        <span id="topCreditDisplay" class="text-orange-400 font-bold">290</span>
       </div>
+      <button onclick="refreshAll()" class="p-2 rounded-lg hover:bg-zinc-800 text-zinc-400 hover:text-white transition"><i class="fas fa-sync-alt text-xs"></i></button>
+      <a href="/admin/logout" class="p-2 rounded-lg hover:bg-zinc-800 text-zinc-400 hover:text-white transition"><i class="fas fa-sign-out-alt text-xs"></i></a>
     </div>
   </header>
 
-  <!-- Main Content -->
-  <main class="max-w-[1600px] mx-auto px-6 py-6">
-
-    <!-- Stats Cards -->
-    <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4 mb-6">
-      <div class="stat-card glass-card rounded-xl p-4 glow-indigo">
-        <div class="text-xs text-gray-500 uppercase tracking-wider">Total Accounts</div>
-        <div id="statTotalAccounts" class="text-2xl font-bold text-white mt-1">0</div>
-      </div>
-      <div class="stat-card glass-card rounded-xl p-4 glow-green">
-        <div class="text-xs text-gray-500 uppercase tracking-wider">Active Sessions</div>
-        <div id="statActiveSessions" class="text-2xl font-bold text-green-400 mt-1">0</div>
-      </div>
-      <div class="stat-card glass-card rounded-xl p-4">
-        <div class="text-xs text-gray-500 uppercase tracking-wider">Total Credits</div>
-        <div id="statTotalCredits" class="text-2xl font-bold text-yellow-400 mt-1">0</div>
-      </div>
-      <div class="stat-card glass-card rounded-xl p-4">
-        <div class="text-xs text-gray-500 uppercase tracking-wider">Active Tasks</div>
-        <div id="statActiveTasks" class="text-2xl font-bold text-purple-400 mt-1">0</div>
-      </div>
-    </div>
-
-    <!-- Tabs -->
-    <div class="flex space-x-6 mb-6 border-b border-white/10">
-      <button onclick="switchTab('accounts')" id="tab-accounts" class="pb-3 text-sm font-medium tab-active">
-        <i class="fas fa-users mr-2"></i>Accounts
+  <!-- Navigation Tabs -->
+  <div class="bg-[#101116] border-b border-[#1c1d26] px-6">
+    <div class="max-w-[1500px] mx-auto flex space-x-8 text-xs font-semibold">
+      <button onclick="switchTab('studio')" id="tab-studio" class="py-3.5 suno-tab-active flex items-center space-x-2">
+        <i class="fas fa-wand-magic-sparkles"></i><span>Create & Library</span>
       </button>
-      <button onclick="switchTab('generator')" id="tab-generator" class="pb-3 text-sm font-medium text-gray-500 hover:text-gray-300">
-        <i class="fas fa-magic mr-2"></i>🎵 Song Generator Studio
+      <button onclick="switchTab('accounts')" id="tab-accounts" class="py-3.5 text-zinc-400 hover:text-white flex items-center space-x-2">
+        <i class="fas fa-user-shield"></i><span>Accounts</span>
       </button>
-      <button onclick="switchTab('tasks')" id="tab-tasks" class="pb-3 text-sm font-medium text-gray-500 hover:text-gray-300">
-        <i class="fas fa-tasks mr-2"></i>Task Queue
+      <button onclick="switchTab('tasks')" id="tab-tasks" class="py-3.5 text-zinc-400 hover:text-white flex items-center space-x-2">
+        <i class="fas fa-list-check"></i><span>Queue</span>
       </button>
-      <button onclick="switchTab('logs')" id="tab-logs" class="pb-3 text-sm font-medium text-gray-500 hover:text-gray-300">
-        <i class="fas fa-terminal mr-2"></i>Logs
+      <button onclick="switchTab('logs')" id="tab-logs" class="py-3.5 text-zinc-400 hover:text-white flex items-center space-x-2">
+        <i class="fas fa-terminal"></i><span>Logs</span>
       </button>
     </div>
+  </div>
 
-    <!-- Accounts Tab -->
-    <div id="panel-accounts">
-      <div class="flex flex-wrap items-center gap-3 mb-4">
-        <button onclick="openImportCookieModal()"
-          class="btn-action px-4 py-2.5 bg-green-600 hover:bg-green-700 rounded-xl text-sm font-semibold text-white flex items-center space-x-2 glow-green">
-          <i class="fas fa-cookie-bite"></i>
-          <span>Import Cookie (Kiwi)</span>
-        </button>
-      </div>
+  <!-- Main Container -->
+  <main class="max-w-[1500px] w-full mx-auto px-4 lg:px-6 py-6 flex-1">
 
-      <!-- Accounts Table -->
-      <div class="glass-card rounded-xl overflow-hidden">
-        <div class="overflow-x-auto">
-          <table class="w-full">
-            <thead>
-              <tr class="border-b border-white/10">
-                <th class="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">ID</th>
-                <th class="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Email</th>
-                <th class="text-center px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Session Status</th>
-                <th class="text-center px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Credits</th>
-                <th class="text-center px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Actions</th>
-              </tr>
-            </thead>
-            <tbody id="accountsTableBody">
-              <tr>
-                <td colspan="5" class="text-center py-12 text-gray-500">
-                  <i class="fas fa-inbox text-3xl mb-3 block"></i>Belum ada akun. Klik "Import Cookie (Kiwi)" untuk memasukkan akun.
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
+    <!-- ==================== TAB 1: SUNO STUDIO (MIRIP SUNO ASLI) ==================== -->
+    <div id="panel-studio">
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        
+        <!-- Form Pembuatan Lagu (Kiri) -->
+        <div class="lg:col-span-5 suno-card rounded-2xl p-5 shadow-xl">
+          <div class="flex items-center justify-between mb-4">
+            <h2 class="text-sm font-bold text-white uppercase tracking-wider flex items-center space-x-2">
+              <i class="fas fa-sliders text-orange-500"></i>
+              <span>Song Creator</span>
+            </h2>
+            <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-orange-500/10 text-orange-400 border border-orange-500/20">V6-MINI READY</span>
+          </div>
 
-    <!-- Song Generator Studio Tab -->
-    <div id="panel-generator" class="hidden">
-      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <!-- Form Pembuatan Lagu -->
-        <div class="glass-card rounded-2xl p-6 glow-indigo">
-          <h2 class="text-lg font-bold text-white mb-4"><i class="fas fa-music mr-2 text-indigo-400"></i>Create New Song</h2>
           <form id="songGenForm" class="space-y-4">
             <div>
-              <label class="block text-sm text-gray-400 mb-1">Song Title (Judul Lagu)</label>
-              <input type="text" id="songTitle" class="w-full px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white placeholder-gray-600 focus:outline-none focus:border-indigo-500" placeholder="e.g. Senja di Jakarta">
+              <label class="block text-xs font-semibold text-zinc-400 mb-1">Model AI</label>
+              <select id="songModel" class="w-full px-3.5 py-2.5 rounded-xl suno-input text-white text-xs font-medium focus:outline-none">
+                <option value="v6-mini" selected>✨ v6-mini (Terbaru - Kualitas Terbaik & Cepat)</option>
+                <option value="v3.5">v3.5 (chirp-v3-5 - Klasik Stabil)</option>
+              </select>
             </div>
+
             <div>
-              <label class="block text-sm text-gray-400 mb-1">Style / Genre Musik</label>
-              <input type="text" id="songStyle" class="w-full px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white placeholder-gray-600 focus:outline-none focus:border-indigo-500" placeholder="e.g. Indonesian Pop, Acoustic, Warm Vocals">
+              <label class="block text-xs font-semibold text-zinc-400 mb-1">Judul Lagu (Song Title)</label>
+              <input type="text" id="songTitle" required class="w-full px-3.5 py-2.5 rounded-xl suno-input text-white placeholder-zinc-600 text-xs focus:outline-none" placeholder="Contoh: Senja di Jakarta">
             </div>
+
             <div>
-              <label class="block text-sm text-gray-400 mb-1">Lyrics or Prompt (Lirik atau Deskripsi)</label>
-              <textarea id="songLyrics" rows="5" class="w-full px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white placeholder-gray-600 focus:outline-none focus:border-indigo-500" placeholder="Tuliskan lirik lagu atau deskripsi lagu yang ingin dibuat..."></textarea>
+              <label class="block text-xs font-semibold text-zinc-400 mb-1">Style / Genre Musik</label>
+              <input type="text" id="songStyle" required class="w-full px-3.5 py-2.5 rounded-xl suno-input text-white placeholder-zinc-600 text-xs focus:outline-none" placeholder="Contoh: Dangdut Koplo, Kendang, Upbeat, Warm Female Vocals">
             </div>
-            <div class="flex items-center space-x-2">
-              <input type="checkbox" id="songInstrumental" class="rounded bg-white/10 border-white/20 text-indigo-600 focus:ring-0">
-              <label for="songInstrumental" class="text-sm text-gray-300">Instrumental Only (Tanpa Vokal)</label>
+
+            <div>
+              <label class="block text-xs font-semibold text-zinc-400 mb-1">Lirik atau Deskripsi Lagu</label>
+              <textarea id="songLyrics" rows="4" class="w-full px-3.5 py-2.5 rounded-xl suno-input text-white placeholder-zinc-600 text-xs focus:outline-none" placeholder="[Verse 1]&#10;Di bawah sinar rembulan...&#10;[Chorus]&#10;Kutatap paras ayumu..."></textarea>
             </div>
-            <button type="submit" id="btnGenSong" class="w-full py-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold transition flex items-center justify-center space-x-2">
-              <i class="fas fa-play"></i>
-              <span>Generate Song Now</span>
+
+            <div class="flex items-center space-x-2 pt-1">
+              <input type="checkbox" id="songInstrumental" class="rounded bg-zinc-800 border-zinc-700 text-orange-600 focus:ring-0">
+              <label for="songInstrumental" class="text-xs text-zinc-300 select-none">Instrumental (Hanya Musik Tanpa Vokal)</label>
+            </div>
+
+            <button type="submit" id="btnGenSong" class="w-full py-3 rounded-xl bg-orange-600 hover:bg-orange-500 text-white font-bold text-xs uppercase tracking-wider transition shadow-lg shadow-orange-600/25 flex items-center justify-center space-x-2">
+              <i class="fas fa-wand-magic-sparkles"></i>
+              <span>Create Song</span>
             </button>
           </form>
         </div>
 
-        <!-- Player & Hasil Musik -->
-        <div class="glass-card rounded-2xl p-6">
-          <h2 class="text-lg font-bold text-white mb-4"><i class="fas fa-headphones mr-2 text-indigo-400"></i>Generated Songs</h2>
-          <div id="generatedList" class="space-y-4 max-h-[500px] overflow-y-auto pr-2">
-            <div class="text-center py-12 text-gray-500">
-              <i class="fas fa-compact-disc text-3xl mb-3 block animate-spin"></i>
-              Belum ada lagu yang di-generate. Silakan isi form di samping!
+        <!-- Tracklist / Hasil Musik Mirip Suno Library (Kanan) -->
+        <div class="lg:col-span-7">
+          <div class="flex items-center justify-between mb-4">
+            <h2 class="text-sm font-bold text-white uppercase tracking-wider flex items-center space-x-2">
+              <i class="fas fa-compact-disc text-orange-500"></i>
+              <span>Your Library</span>
+            </h2>
+            <span class="text-xs text-zinc-500">Auto-Refreshed via WebSocket</span>
+          </div>
+
+          <div id="libraryContainer" class="space-y-3">
+            <div class="suno-card rounded-2xl p-12 text-center text-zinc-500">
+              <i class="fas fa-music text-4xl mb-3 block opacity-30"></i>
+              <p class="text-xs">Belum ada lagu yang dibuat. Klik tombol Create di samping!</p>
             </div>
           </div>
         </div>
+
       </div>
     </div>
 
-    <!-- Tasks Tab -->
+    <!-- ==================== TAB 2: ACCOUNTS ==================== -->
+    <div id="panel-accounts" class="hidden">
+      <div class="flex justify-between items-center mb-4">
+        <h2 class="text-sm font-bold text-white uppercase tracking-wider">Account Manager</h2>
+        <button onclick="openImportCookieModal()" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition flex items-center space-x-2">
+          <i class="fas fa-cookie-bite"></i><span>Import Cookie (Kiwi)</span>
+        </button>
+      </div>
+
+      <div class="suno-card rounded-2xl overflow-hidden">
+        <table class="w-full text-left text-xs">
+          <thead class="bg-[#181922] text-zinc-400 border-b border-[#242634]">
+            <tr>
+              <th class="p-3.5">ID</th>
+              <th class="p-3.5">Email</th>
+              <th class="p-3.5 text-center">Status</th>
+              <th class="p-3.5 text-center">Credits</th>
+              <th class="p-3.5 text-center">Action</th>
+            </tr>
+          </thead>
+          <tbody id="accountsTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ==================== TAB 3: QUEUE ==================== -->
     <div id="panel-tasks" class="hidden">
-      <div class="glass-card rounded-xl overflow-hidden p-4">
-        <h3 class="text-lg font-semibold text-white mb-3">Task Queue</h3>
-        <table class="w-full">
-          <thead>
-            <tr class="border-b border-white/10 text-xs text-gray-500">
-              <th class="text-left py-2">Task ID</th>
-              <th class="text-center py-2">Status</th>
-              <th class="text-left py-2">Created</th>
+      <div class="suno-card rounded-2xl p-4">
+        <h2 class="text-sm font-bold text-white uppercase tracking-wider mb-3">Task Queue</h2>
+        <table class="w-full text-left text-xs">
+          <thead class="text-zinc-500 border-b border-zinc-800">
+            <tr>
+              <th class="py-2">Task ID</th>
+              <th class="py-2 text-center">Status</th>
+              <th class="py-2 text-right">Time</th>
             </tr>
           </thead>
           <tbody id="tasksTableBody"></tbody>
@@ -329,33 +294,55 @@ function getDashboardHTML() {
       </div>
     </div>
 
-    <!-- Logs Tab -->
+    <!-- ==================== TAB 4: LOGS ==================== -->
     <div id="panel-logs" class="hidden">
-      <div class="glass-card rounded-xl p-4">
-        <div id="logOutput" class="font-mono text-xs text-green-400 bg-black/30 rounded-lg p-4 h-96 overflow-y-auto whitespace-pre-wrap"></div>
+      <div class="suno-card rounded-2xl p-4">
+        <h2 class="text-sm font-bold text-white uppercase tracking-wider mb-3">Live Logs</h2>
+        <div id="logOutput" class="font-mono text-xs text-emerald-400 bg-black/40 rounded-xl p-4 h-96 overflow-y-auto whitespace-pre-wrap"></div>
       </div>
     </div>
+
   </main>
 
-  <!-- Import Cookie Modal -->
-  <div id="importCookieModal" class="fixed inset-0 z-50 hidden items-center justify-center modal-overlay">
-    <div class="glass-card rounded-2xl p-6 w-full max-w-lg mx-4 glow-green">
+  <!-- Floating Audio Player (Persis Player Suno / Spotify) -->
+  <div id="audioPlayerBar" class="fixed bottom-0 left-0 right-0 bg-[#12131a] border-t border-[#232535] px-6 py-3 flex items-center justify-between z-50 shadow-2xl">
+    <div class="flex items-center space-x-3 w-1/3">
+      <img id="playerCover" src="https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=100" class="w-12 h-12 rounded-lg object-cover border border-zinc-700">
+      <div class="overflow-hidden">
+        <h4 id="playerTitle" class="text-xs font-bold text-white truncate">Pilih Lagu</h4>
+        <p id="playerTags" class="text-[10px] text-zinc-400 truncate">Suno AI Audio</p>
+      </div>
+    </div>
+
+    <!-- Audio Element dengan NO-REFERRER (Bypass Blokir Suno) -->
+    <div class="w-1/2 flex flex-col items-center">
+      <audio id="mainAudioElement" controls referrerpolicy="no-referrer" class="w-full h-8 brightness-90"></audio>
+    </div>
+
+    <div class="w-1/3 flex justify-end">
+      <a id="playerDownloadBtn" href="#" download target="_blank" class="px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white text-xs font-semibold flex items-center space-x-1.5 transition">
+        <i class="fas fa-download"></i><span>Download MP3</span>
+      </a>
+    </div>
+  </div>
+
+  <!-- Modal Import Cookie -->
+  <div id="importCookieModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/70 backdrop-blur-sm">
+    <div class="suno-card rounded-2xl p-6 w-full max-w-lg mx-4">
       <div class="flex items-center justify-between mb-4">
-        <h2 class="text-lg font-bold text-white"><i class="fas fa-cookie-bite mr-2 text-green-400"></i>Import Cookie Suno (Kiwi Browser)</h2>
-        <button onclick="closeModal('importCookieModal')" class="text-gray-500 hover:text-white"><i class="fas fa-times text-xl"></i></button>
+        <h3 class="text-sm font-bold text-white">Import Cookie Suno (Kiwi Browser)</h3>
+        <button onclick="closeModal('importCookieModal')" class="text-zinc-500 hover:text-white"><i class="fas fa-times"></i></button>
       </div>
       <form id="importCookieForm" class="space-y-4">
         <div>
-          <label class="block text-sm text-gray-400 mb-1">Email Akun Suno</label>
-          <input type="email" id="cookieEmail" required class="w-full px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white placeholder-gray-600 focus:outline-none focus:border-green-500" placeholder="user@gmail.com">
+          <label class="block text-xs font-semibold text-zinc-400 mb-1">Email Akun Suno</label>
+          <input type="email" id="cookieEmail" required class="w-full px-3.5 py-2.5 rounded-xl suno-input text-white text-xs focus:outline-none" placeholder="user@gmail.com">
         </div>
         <div>
-          <label class="block text-sm text-gray-400 mb-1">Paste JSON Cookie dari Cookie-Editor</label>
-          <textarea id="cookieJsonRaw" rows="6" required class="w-full px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white placeholder-gray-600 focus:outline-none focus:border-green-500 font-mono text-xs" placeholder='[ { "name": "__session", "value": "..." } ]'></textarea>
+          <label class="block text-xs font-semibold text-zinc-400 mb-1">Paste JSON Cookie</label>
+          <textarea id="cookieJsonRaw" rows="6" required class="w-full px-3.5 py-2.5 rounded-xl suno-input text-white text-xs font-mono focus:outline-none" placeholder='[ { "name": "__session", "value": "..." } ]'></textarea>
         </div>
-        <button type="submit" id="btnImportSubmit" class="w-full py-2.5 rounded-xl bg-green-600 hover:bg-green-700 text-white font-semibold transition">
-          <i class="fas fa-check mr-2"></i>Aktifkan Akun Sekarang
-        </button>
+        <button type="submit" id="btnImportSubmit" class="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition">Aktifkan Akun</button>
       </form>
     </div>
   </div>
@@ -367,19 +354,23 @@ function getDashboardHTML() {
     const socket = io();
     let accounts = [];
     let tasks = [];
+    let libraryClips = [];
 
     socket.on('connect', () => { addLog('WebSocket connected'); });
-    socket.on('accounts:updated', (data) => { accounts = data; renderAccounts(); updateStats(); });
+    socket.on('accounts:updated', (data) => { accounts = data; renderAccounts(); });
     socket.on('tasks:updated', (data) => { tasks = data; renderTasks(); });
     
-    socket.on('task:progress', (data) => {
-      addLog(\`Task \${data.taskId.slice(0,8)} progress...\`);
+    socket.on('account:credits', (data) => {
+      document.getElementById('topCreditDisplay').textContent = data.credits;
     });
 
     socket.on('task:completed', (data) => {
-      addLog(\`Task \${data.taskId} COMPLETED!\`);
-      showToast('SUCCESS', 'Lagu berhasil dibuat!', 'success');
-      renderGeneratedMusic(data.result);
+      addLog(\`Lagu selesai diproduksi!\`);
+      showToast('SUCCESS', 'Lagu baru berhasil dibuat!', 'success');
+      if (data.result && data.result.length) {
+        libraryClips = [...data.result, ...libraryClips];
+        renderLibrary();
+      }
     });
 
     socket.on('notification', (data) => {
@@ -387,64 +378,107 @@ function getDashboardHTML() {
       addLog(\`[\${data.type}] \${data.message}\`);
     });
 
-    function renderAccounts() {
-      const tbody = document.getElementById('accountsTableBody');
-      if (!accounts.length) {
-        tbody.innerHTML = '<tr><td colspan="5" class="text-center py-12 text-gray-500">Belum ada akun. Klik Import Cookie (Kiwi) di atas!</td></tr>';
+    // RENDER LIBRARY PERSIS SUNO AI
+    function renderLibrary() {
+      const c = document.getElementById('libraryContainer');
+      if (!libraryClips.length) {
+        c.innerHTML = '<div class="suno-card rounded-2xl p-12 text-center text-zinc-500"><i class="fas fa-music text-4xl mb-3 block opacity-30"></i><p class="text-xs">Belum ada lagu yang dibuat. Klik tombol Create di samping!</p></div>';
         return;
       }
-      tbody.innerHTML = accounts.map(acc => \`
-        <tr class="table-row border-b border-white/5">
-          <td class="px-4 py-3 text-xs font-mono text-indigo-400">\${acc.id}</td>
-          <td class="px-4 py-3 text-sm text-white">\${acc.email}</td>
-          <td class="px-4 py-3 text-center">
-            \${acc.statusCookie === 'active' ? '<span class="text-green-400 text-xs font-bold">🟢 Active</span>' : '<span class="text-red-400 text-xs">🔴 Expired</span>'}
-          </td>
-          <td class="px-4 py-3 text-center text-sm font-bold text-yellow-400">\${acc.creditsLeft || 0}</td>
-          <td class="px-4 py-3 text-center">
-            <button onclick="checkCredits('\${acc.id}')" class="px-2 py-1 bg-yellow-600/20 text-yellow-400 rounded text-xs mr-2"><i class="fas fa-coins"></i> Cek Saldo</button>
-            <button onclick="deleteAccount('\${acc.id}')" class="px-2 py-1 bg-red-600/20 text-red-400 rounded text-xs"><i class="fas fa-trash"></i></button>
-          </td>
-        </tr>
+
+      c.innerHTML = libraryClips.map((clip, index) => \`
+        <div class="suno-card rounded-2xl p-3.5 flex items-center justify-between hover:bg-[#181922] transition group">
+          <div class="flex items-center space-x-3.5 overflow-hidden">
+            <!-- Cover Art dengan Tombol Play -->
+            <div class="relative w-14 h-14 rounded-xl overflow-hidden shrink-0 cursor-pointer shadow-md" onclick="playMusic('\${clip.audioUrl}', '\${clip.title}', '\${clip.tags}', '\${clip.imageUrl}')">
+              <img src="\${clip.imageUrl}" referrerpolicy="no-referrer" class="w-full h-full object-cover">
+              <div class="absolute inset-0 bg-black/40 flex items-center justify-center group-hover:bg-black/20 transition">
+                <div class="w-8 h-8 rounded-full bg-white/90 text-zinc-900 flex items-center justify-center pl-0.5 shadow-lg">
+                  <i class="fas fa-play text-xs"></i>
+                </div>
+              </div>
+            </div>
+
+            <!-- Detail Info Lagu -->
+            <div class="overflow-hidden">
+              <div class="flex items-center space-x-2">
+                <h4 class="text-xs font-bold text-white truncate max-w-[200px] lg:max-w-[280px]">\${clip.title}</h4>
+                <span class="text-[9px] font-bold px-1.5 py-0.2 rounded bg-zinc-800 text-zinc-400 border border-zinc-700">\${clip.model || 'V6-MINI'}</span>
+              </div>
+              <p class="text-[11px] text-zinc-400 truncate mt-0.5">\${clip.tags}</p>
+              <div class="flex items-center space-x-2 text-[10px] text-zinc-500 mt-1">
+                <span><i class="far fa-clock mr-1"></i>\${clip.duration || '3:00'}</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Action Buttons -->
+          <div class="flex items-center space-x-2 shrink-0">
+            <button onclick="playMusic('\${clip.audioUrl}', '\${clip.title}', '\${clip.tags}', '\${clip.imageUrl}')" class="p-2.5 rounded-xl bg-orange-600/10 text-orange-400 hover:bg-orange-600 hover:text-white text-xs transition" title="Play">
+              <i class="fas fa-play"></i>
+            </button>
+            <a href="\${clip.audioUrl}" download target="_blank" class="p-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs transition" title="Download MP3">
+              <i class="fas fa-download"></i>
+            </a>
+          </div>
+        </div>
       \`).join('');
     }
 
-    function renderGeneratedMusic(clips) {
-      if (!clips || !clips.length) return;
-      const container = document.getElementById('generatedList');
-      container.innerHTML = clips.map(clip => \`
-        <div class="p-4 rounded-xl bg-white/5 border border-white/10 space-y-2">
-          <div class="flex items-center space-x-3">
-            <img src="\${clip.imageUrl || 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=100'}" class="w-14 h-14 rounded-lg object-cover">
-            <div>
-              <h4 class="text-white font-bold text-sm">\${clip.title || 'Untitled Song'}</h4>
-              <p class="text-xs text-gray-400">\${clip.tags || 'Music'}</p>
-            </div>
-          </div>
-          \${clip.audioUrl ? \`<audio controls class="w-full h-8 mt-2"><source src="\${clip.audioUrl}" type="audio/mpeg"></audio>\` : '<p class="text-xs text-yellow-400">Masih memproses audio...</p>'}
-        </div>
-      \`).join('') + container.innerHTML;
+    // FUNGSI MEMUTAR MUSIK DI FLOATING PLAYER
+    function playMusic(url, title, tags, cover) {
+      const audio = document.getElementById('mainAudioElement');
+      document.getElementById('playerTitle').textContent = title;
+      document.getElementById('playerTags').textContent = tags;
+      document.getElementById('playerCover').src = cover;
+      document.getElementById('playerDownloadBtn').href = url;
+
+      audio.src = url;
+      audio.load();
+      audio.play().catch(e => {
+        showToast('INFO', 'Klik play pada bar audio di bawah jika tidak otomatis jalan.', 'info');
+      });
+      showToast('PLAYING', \`Memutar: \${title}\`, 'success');
+    }
+
+    function renderAccounts() {
+      const tbody = document.getElementById('accountsTableBody');
+      if (!accounts.length) {
+        tbody.innerHTML = '<tr><td colspan="5" class="text-center py-8 text-zinc-500">Belum ada akun.</td></tr>';
+        return;
+      }
+      tbody.innerHTML = accounts.map(acc => \`
+        <tr class="border-b border-[#1c1d26]">
+          <td class="p-3.5 font-mono text-zinc-400">\${acc.id}</td>
+          <td class="p-3.5 font-medium text-white">\${acc.email}</td>
+          <td class="p-3.5 text-center">
+            \${acc.statusCookie === 'active' ? '<span class="text-emerald-400 font-bold">🟢 Active</span>' : '<span class="text-red-400">🔴 Expired</span>'}
+          </td>
+          <td class="p-3.5 text-center font-bold text-orange-400">\${acc.creditsLeft || 0}</td>
+          <td class="p-3.5 text-center">
+            <button onclick="checkCredits('\${acc.id}')" class="px-2.5 py-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg text-xs mr-2"><i class="fas fa-coins mr-1"></i>Cek Saldo</button>
+            <button onclick="deleteAccount('\${acc.id}')" class="px-2.5 py-1 bg-red-600/20 text-red-400 rounded-lg text-xs"><i class="fas fa-trash"></i></button>
+          </td>
+        </tr>
+      \`).join('');
+
+      if (accounts[0] && accounts[0].creditsLeft) {
+        document.getElementById('topCreditDisplay').textContent = accounts[0].creditsLeft;
+      }
     }
 
     function renderTasks() {
       const tbody = document.getElementById('tasksTableBody');
       tbody.innerHTML = tasks.slice(0, 10).map(t => \`
-        <tr class="border-b border-white/5 text-xs">
-          <td class="py-2 font-mono text-gray-400">\${t.taskId.slice(0,8)}...</td>
-          <td class="py-2 text-center text-indigo-400 font-bold">\${t.status}</td>
-          <td class="py-2 text-gray-500">\${new Date(t.createdAt).toLocaleTimeString()}</td>
+        <tr class="border-b border-zinc-800 text-xs">
+          <td class="py-2.5 font-mono text-zinc-400">\${t.taskId.slice(0,8)}...</td>
+          <td class="py-2.5 text-center text-orange-400 font-bold">\${t.status}</td>
+          <td class="py-2.5 text-right text-zinc-500">\${new Date(t.createdAt).toLocaleTimeString()}</td>
         </tr>
       \`).join('');
     }
 
-    function updateStats() {
-      document.getElementById('statTotalAccounts').textContent = accounts.length;
-      document.getElementById('statActiveSessions').textContent = accounts.filter(a => a.statusCookie === 'active').length;
-      document.getElementById('statTotalCredits').textContent = accounts.reduce((s, a) => s + (a.creditsLeft || 0), 0);
-      document.getElementById('statActiveTasks').textContent = tasks.filter(t => t.status === 'processing').length;
-    }
-
-    // Generator Form Submit
+    // FORM GENERATOR
     document.getElementById('songGenForm').addEventListener('submit', (e) => {
       e.preventDefault();
       const btn = document.getElementById('btnGenSong');
@@ -452,13 +486,14 @@ function getDashboardHTML() {
       btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Generating...';
 
       socket.emit('song:generate', {
+        modelVersion: document.getElementById('songModel').value,
         title: document.getElementById('songTitle').value,
         style: document.getElementById('songStyle').value,
         lyrics: document.getElementById('songLyrics').value,
         instrumental: document.getElementById('songInstrumental').checked
       }, (res) => {
         btn.disabled = false;
-        btn.innerHTML = '<i class="fas fa-play mr-2"></i>Generate Song Now';
+        btn.innerHTML = '<i class="fas fa-wand-magic-sparkles mr-2"></i>Create Song';
         if (res.success) {
           showToast('PROSES', 'Lagu sedang diproduksi oleh Suno AI...', 'info');
         } else {
@@ -467,7 +502,7 @@ function getDashboardHTML() {
       });
     });
 
-    // Import Cookie Form Submit
+    // FORM IMPORT COOKIE
     document.getElementById('importCookieForm').addEventListener('submit', (e) => {
       e.preventDefault();
       const btn = document.getElementById('btnImportSubmit');
@@ -479,7 +514,7 @@ function getDashboardHTML() {
         cookieJson: document.getElementById('cookieJsonRaw').value
       }, (res) => {
         btn.disabled = false;
-        btn.innerHTML = '<i class="fas fa-check mr-2"></i>Aktifkan Akun Sekarang';
+        btn.innerHTML = 'Aktifkan Akun';
         if (res.success) {
           closeModal('importCookieModal');
           document.getElementById('importCookieForm').reset();
@@ -504,20 +539,20 @@ function getDashboardHTML() {
     }
 
     function switchTab(tab) {
-      ['accounts', 'generator', 'tasks', 'logs'].forEach(t => {
+      ['studio', 'accounts', 'tasks', 'logs'].forEach(t => {
         document.getElementById(\`panel-\${t}\`).classList.toggle('hidden', t !== tab);
-        document.getElementById(\`tab-\${t}\`).classList.toggle('tab-active', t === tab);
-        document.getElementById(\`tab-\${t}\`).classList.toggle('text-gray-500', t !== tab);
+        document.getElementById(\`tab-\${t}\`).classList.toggle('suno-tab-active', t === tab);
+        document.getElementById(\`tab-\${t}\`).classList.toggle('text-zinc-400', t !== tab);
       });
     }
 
     function showToast(title, message, type = 'info') {
       const c = document.getElementById('toastContainer');
       const toast = document.createElement('div');
-      toast.className = \`toast-enter glass-card rounded-xl p-4 border-l-4 \${type === 'success' ? 'border-green-500' : type === 'error' ? 'border-red-500' : 'border-indigo-500'} min-w-[300px] max-w-md\`;
-      toast.innerHTML = \`<div class="text-sm font-bold text-white">\${title}</div><div class="text-xs text-gray-300 mt-1">\${message}</div>\`;
+      toast.className = \`p-3.5 rounded-xl shadow-2xl border text-xs max-w-sm \${type === 'success' ? 'bg-[#121c16] border-emerald-500/40 text-emerald-300' : type === 'error' ? 'bg-[#211214] border-red-500/40 text-red-300' : 'bg-[#1e1713] border-orange-500/40 text-orange-300'}\`;
+      toast.innerHTML = \`<div class="font-bold">\${title}</div><div class="mt-0.5 text-zinc-400">\${message}</div>\`;
       c.appendChild(toast);
-      setTimeout(() => toast.remove(), 6000);
+      setTimeout(() => toast.remove(), 5000);
     }
 
     function addLog(msg) {
@@ -525,13 +560,6 @@ function getDashboardHTML() {
       el.textContent += \`[\${new Date().toLocaleTimeString()}] \${msg}\\n\`;
       el.scrollTop = el.scrollHeight;
     }
-
-    fetch('/admin/api/stats').then(r=>r.json()).then(s=>{
-      document.getElementById('statTotalAccounts').textContent = s.totalAccounts;
-      document.getElementById('statActiveSessions').textContent = s.activeAccounts;
-      document.getElementById('statTotalCredits').textContent = s.totalCredits;
-      document.getElementById('statActiveTasks').textContent = s.activeTasks;
-    }).catch(()=>{});
   </script>
 </body>
 </html>`;
