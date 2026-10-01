@@ -101,11 +101,13 @@ class SunoService {
       modelVersion = 'v6-mini'
     } = options;
 
+    // Pemetaan Lengkap Model Versi (Mendukung Akun Free hingga Pro)
     const modelMap = {
       'v6-mini': 'chirp-v6-mini',
-      'v3.5': 'chirp-v3-5',
+      'v6': 'chirp-v6-0',
+      'v6-wild': 'chirp-v6-wild',
       'v4': 'chirp-v4',
-      'v6': 'chirp-v6-0'
+      'v3.5': 'chirp-v3-5'
     };
 
     const selectedMv = modelMap[modelVersion] || 'chirp-v6-mini';
@@ -146,12 +148,14 @@ class SunoService {
           taskId,
           accountId,
           clipIds,
+          title: title || payload.title || 'Untitled',
           status: 'processing',
-          options,
+          options: { ...options, modelVersion: selectedMv },
           createdAt: new Date().toISOString(),
           result: null
         });
 
+        // Update sisa kredit
         setTimeout(async () => {
           try {
             const newCredits = await this.checkCredits(accountId);
@@ -159,6 +163,7 @@ class SunoService {
           } catch (e) {}
         }, 3000);
 
+        // Polling hasil audio
         this.pollTaskStatus(taskId, accountId, clipIds);
 
         return {
@@ -208,14 +213,13 @@ class SunoService {
       try {
         const clips = await this.getClipStatus(clipIds, accountId);
 
-        // Cek apakah audio sudah siap di-streaming
+        // Memastikan lagu full siap
         const allComplete = clips.every(c =>
           c.status === 'complete' || (c.status === 'streaming' && c.audio_url)
         );
 
         if (allComplete) {
           const result = clips.map(c => {
-            // Pastikan URL audio CDN terarah sempurna
             const directAudioUrl = c.audio_url || `https://cdn1.suno.ai/${c.id}.mp3`;
             const durationSec = Math.floor(c.metadata?.duration || 0);
             const mins = Math.floor(durationSec / 60);
@@ -224,6 +228,8 @@ class SunoService {
 
             return {
               id: c.id,
+              audioId: c.id,
+              taskId: taskId,
               title: c.title || 'Untitled Song',
               status: c.status,
               audioUrl: directAudioUrl,
@@ -242,7 +248,8 @@ class SunoService {
           });
 
           global.io.emit('task:completed', { taskId, result });
-          logger.info(`Task ${taskId} selesai dan audio siap diputar!`);
+          global.io.emit('tasks:updated', this.queueManager.getAllTasks().slice(0, 50));
+          logger.info(`Task ${taskId} selesai! 2 Lagu siap diputar.`);
           return;
         }
 
