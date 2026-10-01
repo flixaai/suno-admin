@@ -39,7 +39,6 @@ class SunoService {
     return config;
   }
 
-  // AUTO-GUARD: Cek masa aktif token sebelum melakukan aktivitas apa pun
   async ensureValidSession(accountId) {
     const account = this.accountManager.getAccountRaw(accountId);
     if (!account) throw new Error(`Akun tidak ditemukan: ${accountId}`);
@@ -49,7 +48,6 @@ class SunoService {
       throw new Error(`Tidak ada sesi aktif untuk ${accountId}.`);
     }
 
-    // Jika token sudah mau habis (kurang dari 5 menit), perpanjang saat ini juga!
     if (this.sessionManager.isTokenExpiring(session.bearerToken)) {
       await this.sessionManager.refreshToken(accountId);
       session = this.sessionManager.loadSession(accountId);
@@ -85,7 +83,8 @@ class SunoService {
         };
       });
     } catch (err) {
-      if (err.response?.status === 401) {
+      const isAuthErr = err.response?.status === 401 || err.response?.status === 403 || JSON.stringify(err.response?.data || '').includes('verify your request');
+      if (isAuthErr) {
         const refreshed = await this.sessionManager.refreshToken(accountId);
         if (refreshed) return this.getMyFeed(accountId);
       }
@@ -103,7 +102,8 @@ class SunoService {
       this.accountManager.updateAccount(accountId, { creditsLeft: credits, lastChecked: new Date().toISOString() });
       return credits;
     } catch (err) {
-      if (err.response?.status === 401) {
+      const isAuthErr = err.response?.status === 401 || err.response?.status === 403 || JSON.stringify(err.response?.data || '').includes('verify your request');
+      if (isAuthErr) {
         const refreshed = await this.sessionManager.refreshToken(accountId);
         if (refreshed) return this.checkCredits(accountId);
       }
@@ -141,15 +141,24 @@ class SunoService {
       try {
         res = await axios.post(`${this.apiBase}/api/generate/v2/`, payload, config);
       } catch (errPost) {
-        if (errPost.response?.status === 401) {
-          // Token expired, perpanjang otomatis detik itu juga lalu ulangi request!
+        const errBody = JSON.stringify(errPost.response?.data || errPost.message);
+        
+        // JIKA KENA ERROR "VERIFY YOUR REQUEST" ATAU 401/403 -> PERPANJANG OTOMATIS!
+        const isAuthError = errPost.response?.status === 401 ||
+                            errPost.response?.status === 403 ||
+                            errBody.includes("verify your request") ||
+                            errBody.includes("Unauthorized");
+
+        if (isAuthError) {
+          logger.info('[SunoService] Token meminta verifikasi ulang. Memperpanjang token sekarang...');
           const refreshed = await this.sessionManager.refreshToken(accountId);
           if (refreshed) {
             session = this.sessionManager.loadSession(accountId);
             config = this.getAxiosConfig(account, session);
+            // Ulangi pembuatan lagu dengan token yang baru!
             res = await axios.post(`${this.apiBase}/api/generate/v2/`, payload, config);
           } else {
-            throw errPost;
+            throw new Error("Masa aktif token habis. Silakan buka Kiwi Browser sebentar dan klik 'Import Cookie Baru'.");
           }
         } else {
           payload.mv = 'chirp-v3-5';
