@@ -31,37 +31,47 @@ class SessionManager {
       const { page } = await this.browserManager.launch(accountId, account.proxy);
       const sunoUrl = process.env.SUNO_BASE_URL || 'https://suno.com';
 
-      // 1. Buka Suno.com & Tunggu Clerk SDK Ter-load
-      logger.info(`Navigating to ${sunoUrl}...`);
-      await page.goto(sunoUrl, { waitUntil: 'networkidle2', timeout: 60000 });
-      await this.randomDelay(2000, 3000);
+      // 1. Buka halaman Create Suno langsung (Memaksa Clerk Auth Ter-load)
+      logger.info(`Navigating directly to ${sunoUrl}/create...`);
+      await page.goto(`${sunoUrl}/create`, { waitUntil: 'domcontentloaded', timeout: 45000 });
+      await this.randomDelay(3000, 5000);
 
       // Tangani Cloudflare jika muncul
       if (await this.detectCloudflare(page)) {
+        logger.info('Cloudflare challenge detected, solving...');
         await this.handleCloudflare(page);
         await this.randomDelay(3000, 5000);
       }
 
-      // Tunggu hingga SDK window.Clerk siap di browser
-      logger.info('Waiting for Suno Clerk SDK to initialize...');
-      await page.waitForFunction(() => window.Clerk && window.Clerk.isReady && window.Clerk.isReady(), { timeout: 30000 });
+      // Klik tombol Sign-in jika ada di layar untuk memastikan Clerk SDK ter-inject
+      try {
+        const loginBtn = await page.$('button:has-text("Log in"), button:has-text("Sign in"), [data-testid*="sign-in"]');
+        if (loginBtn) {
+          await loginBtn.click();
+          await this.randomDelay(1500, 3000);
+        }
+      } catch (e) {}
 
-      // 2. REQUEST KODE OTP VIA CLERK JS SDK NATIVE
-      logger.info(`Requesting OTP for ${account.email} via window.Clerk SDK...`);
+      // Tunggu hingga objek window.Clerk siap di browser
+      logger.info('Waiting for Suno Clerk SDK object...');
+      await page.waitForFunction(() => {
+        return typeof window.Clerk !== 'undefined' && window.Clerk.client;
+      }, { timeout: 40000 });
+
+      // 2. REQUEST KODE OTP VIA NATIVE CLERK SDK
+      logger.info(`Requesting OTP for ${account.email} via Clerk SDK...`);
 
       const initAuth = await page.evaluate(async (email) => {
         try {
           if (!window.Clerk || !window.Clerk.client) {
-            return { success: false, error: 'Clerk SDK not loaded on Suno page' };
+            return { success: false, error: 'Clerk SDK not ready' };
           }
 
           // A. Coba Sign-In Terlebih Dahulu
           try {
-            const signIn = await window.Clerk.client.signIn.create({
-              identifier: email
-            });
-
+            const signIn = await window.Clerk.client.signIn.create({ identifier: email });
             const emailFactor = signIn.supportedFirstFactors?.find(f => f.strategy === 'email_code');
+
             if (emailFactor) {
               await signIn.prepareFirstFactor({
                 strategy: 'email_code',
@@ -69,24 +79,22 @@ class SessionManager {
               });
               return { success: true, isSignUp: false };
             } else {
-              return { success: false, error: 'Email OTP strategy not available for this account' };
+              return { success: false, error: 'Email OTP strategy unavailable' };
             }
           } catch (signInErr) {
-            // B. Jika Email Belum Terdaftar -> Lakukan Sign-Up (Daftar Akun Baru)
-            const isNotFound = signInErr.errors?.some(e => e.code === 'form_identifier_not_found');
-            
-            if (isNotFound) {
-              const signUp = await window.Clerk.client.signUp.create({
-                emailAddress: email
-              });
+            // B. Jika Email Belum Terdaftar -> Sign-Up (Daftar Akun Baru)
+            const errors = signInErr.errors || [];
+            const isNotFound = errors.some(e => e.code === 'form_identifier_not_found' || e.message?.includes('not found'));
 
+            if (isNotFound) {
+              const signUp = await window.Clerk.client.signUp.create({ emailAddress: email });
               await signUp.prepareEmailAddressVerification({ strategy: 'email_code' });
               return { success: true, isSignUp: true };
             }
 
             return {
               success: false,
-              error: signInErr.errors?.[0]?.longMessage || signInErr.errors?.[0]?.message || signInErr.message
+              error: errors[0]?.longMessage || errors[0]?.message || signInErr.message
             };
           }
         } catch (err) {
@@ -95,11 +103,11 @@ class SessionManager {
       }, account.email);
 
       if (!initAuth.success) {
-        throw new Error(`Clerk SDK OTP Request Error: ${initAuth.error}`);
+        throw new Error(`OTP Request Error: ${initAuth.error}`);
       }
 
-      // 3. SUNO SUCESS MEMPROSES OTP -> BUKA POP-UP AT DASHBOARD ADMIN
-      logger.info(`OTP Code successfully sent to ${account.email}! Waiting for input...`);
+      // 3. SUNO BERHASIL MENGIRIM KODE OTP -> TRIGER POP-UP OTP DI WEB ADMIN
+      logger.info(`OTP Code successfully sent to ${account.email}! Waiting for Dashboard input...`);
 
       this.accountManager.updateAccount(accountId, { statusCookie: 'need_otp' });
       global.io.emit('account:status', { id: accountId, statusCookie: 'need_otp' });
@@ -109,11 +117,11 @@ class SessionManager {
         timestamp: new Date().toISOString()
       });
 
-      // Tunggu Pengguna Input Kode 6-Digit dari Inbox Email
+      // Tunggu Pengguna Input Kode 6-Digit di Web Admin (Timeout 5 Menit)
       const otpCode = await this.waitForOTP(accountId, 300000);
       if (!otpCode) throw new Error('OTP Timeout - No code entered within 5 minutes');
 
-      logger.info(`Verifying OTP Code (${otpCode}) via window.Clerk SDK...`);
+      logger.info(`Submitting OTP Code (${otpCode}) via Clerk SDK...`);
 
       // 4. SUBMIT & VERIFIKASI OTP VIA CLERK SDK
       const verifyResult = await page.evaluate(async (isSignUp, code) => {
@@ -122,7 +130,7 @@ class SessionManager {
             const signUp = window.Clerk.client.signUp;
             const res = await signUp.attemptEmailAddressVerification({ code });
             if (res.status === 'complete') {
-              await window.Clerk.setActive({ session: res.createdSessionId });
+              if (res.createdSessionId) await window.Clerk.setActive({ session: res.createdSessionId });
               return { success: true };
             }
             return { success: false, error: `SignUp status: ${res.status}` };
@@ -130,15 +138,16 @@ class SessionManager {
             const signIn = window.Clerk.client.signIn;
             const res = await signIn.attemptFirstFactor({ strategy: 'email_code', code });
             if (res.status === 'complete') {
-              await window.Clerk.setActive({ session: res.createdSessionId });
+              if (res.createdSessionId) await window.Clerk.setActive({ session: res.createdSessionId });
               return { success: true };
             }
             return { success: false, error: `SignIn status: ${res.status}` };
           }
         } catch (err) {
+          const errors = err.errors || [];
           return {
             success: false,
-            error: err.errors?.[0]?.longMessage || err.errors?.[0]?.message || err.message
+            error: errors[0]?.longMessage || errors[0]?.message || err.message
           };
         }
       }, initAuth.isSignUp, otpCode);
@@ -147,13 +156,12 @@ class SessionManager {
         throw new Error(`OTP Verification Failed: ${verifyResult.error}`);
       }
 
-      // 5. AMBIL BEARER TOKEN & Dapatkan Session Aktif
-      await page.goto(`${sunoUrl}/create`, { waitUntil: 'networkidle2', timeout: 30000 });
+      // 5. AMBIL SESSION COOKIES & BEARER TOKEN
       await this.randomDelay(2000, 3000);
 
       const sessionData = await this.extractSession(page, accountId);
       if (!sessionData.bearerToken) {
-        throw new Error('Failed to capture Bearer Token after login');
+        throw new Error('Failed to capture Bearer Token after OTP verification');
       }
 
       await this.saveSession(accountId, sessionData);
@@ -165,9 +173,9 @@ class SessionManager {
       });
 
       global.io.emit('account:status', { id: accountId, statusCookie: 'active' });
-      global.io.emit('notification', { type: 'success', message: `Verifikasi OTP Berhasil untuk ${account.email}` });
+      global.io.emit('notification', { type: 'success', message: `Verifikasi Sukses! Akun ${account.email} Aktif.` });
 
-      logger.info(`SUCCESS: Account ${accountId} is Active and Ready!`);
+      logger.info(`SUCCESS: Account ${accountId} fully activated!`);
       await this.browserManager.close(accountId);
       return { success: true };
 
