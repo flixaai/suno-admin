@@ -128,9 +128,9 @@ async function generateSongAPI(session, options) {
   const config = getAxiosConfig(session);
   const { title, style, lyrics, instrumental } = options;
 
+  // Hapus parameter mv agar Suno otomatis menggunakan model default resmi akun Anda (v6-mini)
   let payload = {
-    make_instrumental: !!instrumental,
-    mv: 'v6-mini' // MURNI MODEL RESMI V6-MINI SUNO
+    make_instrumental: !!instrumental
   };
 
   if (instrumental) {
@@ -142,7 +142,7 @@ async function generateSongAPI(session, options) {
     payload.tags = style || 'Pop';
     payload.title = title || 'Untitled Song';
   } else {
-    payload.gpt_description_prompt = prompt || 'Song';
+    payload.gpt_description_prompt = title || style || 'Song';
   }
 
   const res = await axios.post(`${SUNO_API_BASE}/api/generate/v2/`, payload, config);
@@ -156,9 +156,11 @@ app.get('/api/v1/audio/:audioId', async (req, res) => {
   const { audioId } = req.params;
   const { download, title } = req.query;
 
+  // Jalur Resmi CDN & Audiopipe Suno (Tanpa .mp3 untuk audiopipe)
   const mirrors = [
-    `https://audiopipe.suno.ai/track/${audioId}.mp3`,
     `https://cdn1.suno.ai/${audioId}.mp3`,
+    `https://audiopipe.suno.ai/track/${audioId}`,
+    `https://audiopipe.suno.ai/track/${audioId}.mp3`,
     `https://cdn2.suno.ai/${audioId}.mp3`
   ];
 
@@ -169,10 +171,9 @@ app.get('/api/v1/audio/:audioId', async (req, res) => {
         url: url,
         responseType: 'stream',
         headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-          'Referer': 'https://suno.com/'
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
         },
-        timeout: 25000
+        timeout: 20000
       });
 
       if (download === 'true') {
@@ -187,7 +188,7 @@ app.get('/api/v1/audio/:audioId', async (req, res) => {
     } catch (e) {}
   }
 
-  res.status(404).send('Audio not found');
+  return res.redirect(`https://cdn1.suno.ai/${audioId}.mp3`);
 });
 
 // Admin Route
