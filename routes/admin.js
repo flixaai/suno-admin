@@ -42,15 +42,7 @@ router.get('/accounts', authMiddleware, (req, res) => {
   res.redirect('/admin/dashboard');
 });
 
-// API for admin functions
-router.get('/api/accounts', authMiddleware, (req, res) => {
-  res.json(req.app.locals.accountManager.getAllAccounts());
-});
-
-router.get('/api/tasks', authMiddleware, (req, res) => {
-  res.json(req.app.locals.queueManager.getAllTasks().slice(0, 100));
-});
-
+// API for stats
 router.get('/api/stats', authMiddleware, (req, res) => {
   const accounts = req.app.locals.accountManager.getAllAccounts();
   res.json({
@@ -162,28 +154,17 @@ function getDashboardHTML() {
     .gradient-bg { background: linear-gradient(135deg, #0a0a1a 0%, #1a1a3e 50%, #0f0f2e 100%); }
     .glow-indigo { box-shadow: 0 0 30px rgba(99,102,241,0.15); }
     .glow-green { box-shadow: 0 0 30px rgba(34,197,94,0.15); }
-    .glow-red { box-shadow: 0 0 30px rgba(239,68,68,0.15); }
     .stat-card { transition: all 0.3s ease; }
     .stat-card:hover { transform: translateY(-2px); }
     .pulse-dot { animation: pulse-dot 2s infinite; }
-    @keyframes pulse-dot {
-      0%, 100% { opacity: 1; }
-      50% { opacity: 0.5; }
-    }
+    @keyframes pulse-dot { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
     .table-row { transition: all 0.2s ease; }
     .table-row:hover { background: rgba(255,255,255,0.05); }
     .modal-overlay { background: rgba(0,0,0,0.7); backdrop-filter: blur(5px); }
     .toast-enter { animation: slideIn 0.3s ease; }
-    @keyframes slideIn {
-      from { transform: translateX(100%); opacity: 0; }
-      to { transform: translateX(0); opacity: 1; }
-    }
+    @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
     .btn-action { transition: all 0.2s ease; }
-    .btn-action:hover { transform: scale(1.05); }
-    .btn-action:active { transform: scale(0.95); }
-    ::-webkit-scrollbar { width: 6px; }
-    ::-webkit-scrollbar-track { background: transparent; }
-    ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 3px; }
+    .btn-action:hover { transform: scale(1.03); }
     .tab-active { border-bottom: 2px solid #6366f1; color: #818cf8; }
   </style>
 </head>
@@ -195,8 +176,8 @@ function getDashboardHTML() {
       <div class="flex items-center space-x-3">
         <span class="text-3xl">🎵</span>
         <div>
-          <h1 class="text-xl font-bold text-white">Suno AI Admin</h1>
-          <p class="text-xs text-gray-500">Multi-Account Management Engine</p>
+          <h1 class="text-xl font-bold text-white">Suno AI Studio & Admin</h1>
+          <p class="text-xs text-gray-500">Multi-Account & Music Generator</p>
         </div>
       </div>
       <div class="flex items-center space-x-4">
@@ -227,14 +208,6 @@ function getDashboardHTML() {
         <div class="text-xs text-gray-500 uppercase tracking-wider">Active Sessions</div>
         <div id="statActiveSessions" class="text-2xl font-bold text-green-400 mt-1">0</div>
       </div>
-      <div class="stat-card glass-card rounded-xl p-4 glow-red">
-        <div class="text-xs text-gray-500 uppercase tracking-wider">Expired</div>
-        <div id="statExpired" class="text-2xl font-bold text-red-400 mt-1">0</div>
-      </div>
-      <div class="stat-card glass-card rounded-xl p-4">
-        <div class="text-xs text-gray-500 uppercase tracking-wider">Online Proxies</div>
-        <div id="statOnlineProxies" class="text-2xl font-bold text-cyan-400 mt-1">0</div>
-      </div>
       <div class="stat-card glass-card rounded-xl p-4">
         <div class="text-xs text-gray-500 uppercase tracking-wider">Total Credits</div>
         <div id="statTotalCredits" class="text-2xl font-bold text-yellow-400 mt-1">0</div>
@@ -250,8 +223,11 @@ function getDashboardHTML() {
       <button onclick="switchTab('accounts')" id="tab-accounts" class="pb-3 text-sm font-medium tab-active">
         <i class="fas fa-users mr-2"></i>Accounts
       </button>
+      <button onclick="switchTab('generator')" id="tab-generator" class="pb-3 text-sm font-medium text-gray-500 hover:text-gray-300">
+        <i class="fas fa-magic mr-2"></i>🎵 Song Generator Studio
+      </button>
       <button onclick="switchTab('tasks')" id="tab-tasks" class="pb-3 text-sm font-medium text-gray-500 hover:text-gray-300">
-        <i class="fas fa-tasks mr-2"></i>Tasks Queue
+        <i class="fas fa-tasks mr-2"></i>Task Queue
       </button>
       <button onclick="switchTab('logs')" id="tab-logs" class="pb-3 text-sm font-medium text-gray-500 hover:text-gray-300">
         <i class="fas fa-terminal mr-2"></i>Logs
@@ -260,22 +236,11 @@ function getDashboardHTML() {
 
     <!-- Accounts Tab -->
     <div id="panel-accounts">
-      <!-- Actions Bar -->
       <div class="flex flex-wrap items-center gap-3 mb-4">
-        <button onclick="openAddAccountModal()"
-          class="btn-action px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 rounded-xl text-sm font-semibold text-white flex items-center space-x-2">
-          <i class="fas fa-plus"></i>
-          <span>Add Account</span>
-        </button>
-        <button onclick="checkAllProxies()"
-          class="btn-action px-4 py-2.5 bg-cyan-600/20 hover:bg-cyan-600/30 border border-cyan-500/30 rounded-xl text-sm font-medium text-cyan-400 flex items-center space-x-2">
-          <i class="fas fa-network-wired"></i>
-          <span>Check All Proxies</span>
-        </button>
-        <button onclick="loginAllExpired()"
-          class="btn-action px-4 py-2.5 bg-green-600/20 hover:bg-green-600/30 border border-green-500/30 rounded-xl text-sm font-medium text-green-400 flex items-center space-x-2">
-          <i class="fas fa-sign-in-alt"></i>
-          <span>Login All Expired</span>
+        <button onclick="openImportCookieModal()"
+          class="btn-action px-4 py-2.5 bg-green-600 hover:bg-green-700 rounded-xl text-sm font-semibold text-white flex items-center space-x-2 glow-green">
+          <i class="fas fa-cookie-bite"></i>
+          <span>Import Cookie (Kiwi)</span>
         </button>
       </div>
 
@@ -285,669 +250,288 @@ function getDashboardHTML() {
           <table class="w-full">
             <thead>
               <tr class="border-b border-white/10">
-                <th class="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">ID</th>
-                <th class="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Email</th>
-                <th class="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Proxy IP</th>
-                <th class="text-center px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Proxy Status</th>
-                <th class="text-center px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Session</th>
-                <th class="text-center px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Credits</th>
-                <th class="text-center px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Actions</th>
+                <th class="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">ID</th>
+                <th class="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Email</th>
+                <th class="text-center px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Session Status</th>
+                <th class="text-center px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Credits</th>
+                <th class="text-center px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Actions</th>
               </tr>
             </thead>
             <tbody id="accountsTableBody">
               <tr>
-                <td colspan="7" class="text-center py-12 text-gray-500">
-                  <i class="fas fa-inbox text-3xl mb-3 block"></i>
-                  No accounts added yet. Click "Add Account" to get started.
+                <td colspan="5" class="text-center py-12 text-gray-500">
+                  <i class="fas fa-inbox text-3xl mb-3 block"></i>Belum ada akun. Klik "Import Cookie (Kiwi)" untuk memasukkan akun.
                 </td>
               </tr>
             </tbody>
           </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Song Generator Studio Tab -->
+    <div id="panel-generator" class="hidden">
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <!-- Form Pembuatan Lagu -->
+        <div class="glass-card rounded-2xl p-6 glow-indigo">
+          <h2 class="text-lg font-bold text-white mb-4"><i class="fas fa-music mr-2 text-indigo-400"></i>Create New Song</h2>
+          <form id="songGenForm" class="space-y-4">
+            <div>
+              <label class="block text-sm text-gray-400 mb-1">Song Title (Judul Lagu)</label>
+              <input type="text" id="songTitle" class="w-full px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white placeholder-gray-600 focus:outline-none focus:border-indigo-500" placeholder="e.g. Senja di Jakarta">
+            </div>
+            <div>
+              <label class="block text-sm text-gray-400 mb-1">Style / Genre Musik</label>
+              <input type="text" id="songStyle" class="w-full px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white placeholder-gray-600 focus:outline-none focus:border-indigo-500" placeholder="e.g. Indonesian Pop, Acoustic, Warm Vocals">
+            </div>
+            <div>
+              <label class="block text-sm text-gray-400 mb-1">Lyrics or Prompt (Lirik atau Deskripsi)</label>
+              <textarea id="songLyrics" rows="5" class="w-full px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white placeholder-gray-600 focus:outline-none focus:border-indigo-500" placeholder="Tuliskan lirik lagu atau deskripsi lagu yang ingin dibuat..."></textarea>
+            </div>
+            <div class="flex items-center space-x-2">
+              <input type="checkbox" id="songInstrumental" class="rounded bg-white/10 border-white/20 text-indigo-600 focus:ring-0">
+              <label for="songInstrumental" class="text-sm text-gray-300">Instrumental Only (Tanpa Vokal)</label>
+            </div>
+            <button type="submit" id="btnGenSong" class="w-full py-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold transition flex items-center justify-center space-x-2">
+              <i class="fas fa-play"></i>
+              <span>Generate Song Now</span>
+            </button>
+          </form>
+        </div>
+
+        <!-- Player & Hasil Musik -->
+        <div class="glass-card rounded-2xl p-6">
+          <h2 class="text-lg font-bold text-white mb-4"><i class="fas fa-headphones mr-2 text-indigo-400"></i>Generated Songs</h2>
+          <div id="generatedList" class="space-y-4 max-h-[500px] overflow-y-auto pr-2">
+            <div class="text-center py-12 text-gray-500">
+              <i class="fas fa-compact-disc text-3xl mb-3 block animate-spin"></i>
+              Belum ada lagu yang di-generate. Silakan isi form di samping!
+            </div>
+          </div>
         </div>
       </div>
     </div>
 
     <!-- Tasks Tab -->
     <div id="panel-tasks" class="hidden">
-      <div class="flex items-center justify-between mb-4">
-        <h3 class="text-lg font-semibold text-white">Task Queue</h3>
-        <button onclick="clearCompletedTasks()" class="px-3 py-1.5 text-sm text-gray-400 hover:text-white border border-white/10 rounded-lg hover:bg-white/5">
-          Clear Completed
-        </button>
-      </div>
-      <div class="glass-card rounded-xl overflow-hidden">
-        <div class="overflow-x-auto">
-          <table class="w-full">
-            <thead>
-              <tr class="border-b border-white/10">
-                <th class="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Task ID</th>
-                <th class="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Account</th>
-                <th class="text-center px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Status</th>
-                <th class="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Created</th>
-                <th class="text-center px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Details</th>
-              </tr>
-            </thead>
-            <tbody id="tasksTableBody">
-              <tr>
-                <td colspan="5" class="text-center py-12 text-gray-500">
-                  <i class="fas fa-list text-3xl mb-3 block"></i>
-                  No tasks yet.
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
+      <div class="glass-card rounded-xl overflow-hidden p-4">
+        <h3 class="text-lg font-semibold text-white mb-3">Task Queue</h3>
+        <table class="w-full">
+          <thead>
+            <tr class="border-b border-white/10 text-xs text-gray-500">
+              <th class="text-left py-2">Task ID</th>
+              <th class="text-center py-2">Status</th>
+              <th class="text-left py-2">Created</th>
+            </tr>
+          </thead>
+          <tbody id="tasksTableBody"></tbody>
+        </table>
       </div>
     </div>
 
     <!-- Logs Tab -->
     <div id="panel-logs" class="hidden">
       <div class="glass-card rounded-xl p-4">
-        <div class="flex items-center justify-between mb-3">
-          <h3 class="text-sm font-semibold text-gray-400 uppercase tracking-wider">Live Logs</h3>
-          <button onclick="document.getElementById('logOutput').textContent=''" class="text-xs text-gray-500 hover:text-white">Clear</button>
-        </div>
         <div id="logOutput" class="font-mono text-xs text-green-400 bg-black/30 rounded-lg p-4 h-96 overflow-y-auto whitespace-pre-wrap"></div>
       </div>
     </div>
   </main>
 
-  <!-- Add Account Modal -->
-  <div id="addAccountModal" class="fixed inset-0 z-50 hidden items-center justify-center modal-overlay">
-    <div class="glass-card rounded-2xl p-6 w-full max-w-lg mx-4 glow-indigo">
-      <div class="flex items-center justify-between mb-6">
-        <h2 class="text-lg font-bold text-white">
-          <i class="fas fa-user-plus mr-2 text-indigo-400"></i>Add Account & Proxy
-        </h2>
-        <button onclick="closeModal('addAccountModal')" class="text-gray-500 hover:text-white">
-          <i class="fas fa-times text-xl"></i>
-        </button>
-      </div>
-      <form id="addAccountForm" class="space-y-4">
-        <div>
-          <label class="block text-sm text-gray-400 mb-1">Suno Email</label>
-          <input type="email" id="accEmail" required
-            class="w-full px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white placeholder-gray-600 focus:outline-none focus:border-indigo-500 transition"
-            placeholder="user@gmail.com">
-        </div>
-        <div>
-          <label class="block text-sm text-gray-400 mb-1">Suno Password</label>
-          <input type="password" id="accPassword" required
-            class="w-full px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white placeholder-gray-600 focus:outline-none focus:border-indigo-500 transition"
-            placeholder="••••••••">
-        </div>
-        <div class="border-t border-white/10 pt-4">
-          <label class="block text-sm text-gray-400 mb-3">Proxy Configuration <span class="text-gray-600">(optional)</span></label>
-          <div class="grid grid-cols-2 gap-3">
-            <div>
-              <input type="text" id="proxyHost"
-                class="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white placeholder-gray-600 focus:outline-none focus:border-indigo-500 text-sm transition"
-                placeholder="Host / IP">
-            </div>
-            <div>
-              <input type="text" id="proxyPort"
-                class="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white placeholder-gray-600 focus:outline-none focus:border-indigo-500 text-sm transition"
-                placeholder="Port">
-            </div>
-            <div>
-              <input type="text" id="proxyUser"
-                class="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white placeholder-gray-600 focus:outline-none focus:border-indigo-500 text-sm transition"
-                placeholder="Username (optional)">
-            </div>
-            <div>
-              <input type="text" id="proxyPass"
-                class="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white placeholder-gray-600 focus:outline-none focus:border-indigo-500 text-sm transition"
-                placeholder="Password (optional)">
-            </div>
-          </div>
-        </div>
-        <div class="flex space-x-3 pt-2">
-          <button type="submit"
-            class="flex-1 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold transition">
-            <i class="fas fa-plus mr-2"></i>Add Account
-          </button>
-          <button type="button" onclick="closeModal('addAccountModal')"
-            class="px-6 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-gray-400 font-medium transition">
-            Cancel
-          </button>
-        </div>
-      </form>
-    </div>
-  </div>
-
-  <!-- OTP Modal -->
-  <div id="otpModal" class="fixed inset-0 z-50 hidden items-center justify-center modal-overlay">
-    <div class="glass-card rounded-2xl p-6 w-full max-w-md mx-4 glow-indigo">
-      <div class="text-center mb-6">
-        <div class="text-4xl mb-3">🔐</div>
-        <h2 class="text-lg font-bold text-white">OTP Verification Required</h2>
-        <p id="otpAccountEmail" class="text-sm text-gray-400 mt-1"></p>
-      </div>
-      <form id="otpForm" class="space-y-4">
-        <input type="hidden" id="otpAccountId">
-        <div>
-          <label class="block text-sm text-gray-400 mb-2 text-center">Enter 6-digit code from your email</label>
-          <div class="flex justify-center space-x-2" id="otpInputs">
-            <input type="text" maxlength="1" class="otp-digit w-12 h-14 text-center text-2xl font-bold rounded-xl bg-white/5 border border-white/20 text-white focus:outline-none focus:border-indigo-500 transition" data-index="0">
-            <input type="text" maxlength="1" class="otp-digit w-12 h-14 text-center text-2xl font-bold rounded-xl bg-white/5 border border-white/20 text-white focus:outline-none focus:border-indigo-500 transition" data-index="1">
-            <input type="text" maxlength="1" class="otp-digit w-12 h-14 text-center text-2xl font-bold rounded-xl bg-white/5 border border-white/20 text-white focus:outline-none focus:border-indigo-500 transition" data-index="2">
-            <input type="text" maxlength="1" class="otp-digit w-12 h-14 text-center text-2xl font-bold rounded-xl bg-white/5 border border-white/20 text-white focus:outline-none focus:border-indigo-500 transition" data-index="3">
-            <input type="text" maxlength="1" class="otp-digit w-12 h-14 text-center text-2xl font-bold rounded-xl bg-white/5 border border-white/20 text-white focus:outline-none focus:border-indigo-500 transition" data-index="4">
-            <input type="text" maxlength="1" class="otp-digit w-12 h-14 text-center text-2xl font-bold rounded-xl bg-white/5 border border-white/20 text-white focus:outline-none focus:border-indigo-500 transition" data-index="5">
-          </div>
-        </div>
-        <div id="otpError" class="hidden text-red-400 text-sm text-center"></div>
-        <button type="submit" id="otpSubmitBtn"
-          class="w-full py-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold transition">
-          <i class="fas fa-check mr-2"></i>Submit OTP
-        </button>
-        <div class="text-center">
-          <span class="text-xs text-gray-500">⏱️ Waiting for OTP... <span id="otpTimer">5:00</span></span>
-        </div>
-      </form>
-    </div>
-  </div>
-
-  <!-- Task Detail Modal -->
-  <div id="taskDetailModal" class="fixed inset-0 z-50 hidden items-center justify-center modal-overlay">
-    <div class="glass-card rounded-2xl p-6 w-full max-w-2xl mx-4 max-h-[80vh] overflow-y-auto">
+  <!-- Import Cookie Modal -->
+  <div id="importCookieModal" class="fixed inset-0 z-50 hidden items-center justify-center modal-overlay">
+    <div class="glass-card rounded-2xl p-6 w-full max-w-lg mx-4 glow-green">
       <div class="flex items-center justify-between mb-4">
-        <h2 class="text-lg font-bold text-white"><i class="fas fa-info-circle mr-2 text-indigo-400"></i>Task Details</h2>
-        <button onclick="closeModal('taskDetailModal')" class="text-gray-500 hover:text-white">
-          <i class="fas fa-times text-xl"></i>
-        </button>
+        <h2 class="text-lg font-bold text-white"><i class="fas fa-cookie-bite mr-2 text-green-400"></i>Import Cookie Suno (Kiwi Browser)</h2>
+        <button onclick="closeModal('importCookieModal')" class="text-gray-500 hover:text-white"><i class="fas fa-times text-xl"></i></button>
       </div>
-      <pre id="taskDetailContent" class="text-sm text-gray-300 bg-black/30 rounded-lg p-4 overflow-auto font-mono whitespace-pre-wrap"></pre>
+      <form id="importCookieForm" class="space-y-4">
+        <div>
+          <label class="block text-sm text-gray-400 mb-1">Email Akun Suno</label>
+          <input type="email" id="cookieEmail" required class="w-full px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white placeholder-gray-600 focus:outline-none focus:border-green-500" placeholder="user@gmail.com">
+        </div>
+        <div>
+          <label class="block text-sm text-gray-400 mb-1">Paste JSON Cookie dari Cookie-Editor</label>
+          <textarea id="cookieJsonRaw" rows="6" required class="w-full px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white placeholder-gray-600 focus:outline-none focus:border-green-500 font-mono text-xs" placeholder='[ { "name": "__session", "value": "..." } ]'></textarea>
+        </div>
+        <button type="submit" id="btnImportSubmit" class="w-full py-2.5 rounded-xl bg-green-600 hover:bg-green-700 text-white font-semibold transition">
+          <i class="fas fa-check mr-2"></i>Aktifkan Akun Sekarang
+        </button>
+      </form>
     </div>
   </div>
 
   <!-- Toast Container -->
-  <div id="toastContainer" class="fixed top-4 right-4 z-50 space-y-2"></div>
-
-  <!-- Sound for OTP notification -->
-  <audio id="otpSound" preload="auto">
-    <source src="data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdH2JhIBxbXuFi4eAd3R9hYmHg3x3fIWIh4N8d32FiIaDfHd9hYiGg3x3fYWIhoN8d32FiIaDfHd9hYiGg3x3" type="audio/wav">
-  </audio>
+  <div id="toastContainer" class="fixed top-4 right-4 z-50 space-y-2 select-text"></div>
 
   <script>
-    // ========== SOCKET CONNECTION ==========
     const socket = io();
     let accounts = [];
     let tasks = [];
 
-    socket.on('connect', () => {
-      document.getElementById('connectionStatus').innerHTML =
-        '<span class="w-2 h-2 rounded-full bg-green-500 pulse-dot"></span><span class="text-gray-400">Connected</span>';
-      addLog('WebSocket connected');
-    });
-
-    socket.on('disconnect', () => {
-      document.getElementById('connectionStatus').innerHTML =
-        '<span class="w-2 h-2 rounded-full bg-red-500"></span><span class="text-gray-400">Disconnected</span>';
-      addLog('WebSocket disconnected');
-    });
-
-    // ========== DATA EVENTS ==========
-    socket.on('accounts:updated', (data) => {
-      accounts = data;
-      renderAccounts();
-      updateStats();
-    });
-
-    socket.on('tasks:updated', (data) => {
-      tasks = data;
-      renderTasks();
-    });
-
-    socket.on('account:status', (data) => {
-      const acc = accounts.find(a => a.id === data.id);
-      if (acc) {
-        acc.statusCookie = data.statusCookie;
-        renderAccounts();
-        updateStats();
-      }
-      addLog(\`Account \${data.id} status: \${data.statusCookie}\`);
-    });
-
-    socket.on('account:credits', (data) => {
-      const acc = accounts.find(a => a.id === data.id);
-      if (acc) {
-        acc.creditsLeft = data.credits;
-        renderAccounts();
-        updateStats();
-      }
+    socket.on('connect', () => { addLog('WebSocket connected'); });
+    socket.on('accounts:updated', (data) => { accounts = data; renderAccounts(); updateStats(); });
+    socket.on('tasks:updated', (data) => { tasks = data; renderTasks(); });
+    
+    socket.on('task:progress', (data) => {
+      addLog(\`Task \${data.taskId.slice(0,8)} progress...\`);
     });
 
     socket.on('task:completed', (data) => {
-      addLog(\`Task \${data.taskId} completed!\`);
-      showToast('Task Completed', \`Task \${data.taskId.slice(0,8)}... finished\`, 'success');
-      socket.emit('tasks:get', {}, (t) => { tasks = t; renderTasks(); });
+      addLog(\`Task \${data.taskId} COMPLETED!\`);
+      showToast('SUCCESS', 'Lagu berhasil dibuat!', 'success');
+      renderGeneratedMusic(data.result);
     });
 
-    socket.on('task:progress', (data) => {
-      const task = tasks.find(t => t.taskId === data.taskId);
-      if (task) {
-        task.progress = data.progress;
-        renderTasks();
-      }
-    });
-
-    // ========== OTP EVENT ==========
-    socket.on('otp:required', (data) => {
-      addLog(\`OTP required for \${data.email} (\${data.accountId})\`);
-      showOTPModal(data.accountId, data.email);
-      showToast('OTP Required', \`Enter OTP for \${data.email}\`, 'warning');
-      // Play sound
-      try { document.getElementById('otpSound').play(); } catch(e) {}
-    });
-
-    // ========== NOTIFICATIONS ==========
     socket.on('notification', (data) => {
       showToast(data.type.toUpperCase(), data.message, data.type);
       addLog(\`[\${data.type}] \${data.message}\`);
     });
 
-    // ========== RENDER FUNCTIONS ==========
     function renderAccounts() {
       const tbody = document.getElementById('accountsTableBody');
       if (!accounts.length) {
-        tbody.innerHTML = '<tr><td colspan="7" class="text-center py-12 text-gray-500"><i class="fas fa-inbox text-3xl mb-3 block"></i>No accounts added yet.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="5" class="text-center py-12 text-gray-500">Belum ada akun. Klik Import Cookie (Kiwi) di atas!</td></tr>';
         return;
       }
+      tbody.innerHTML = accounts.map(acc => \`
+        <tr class="table-row border-b border-white/5">
+          <td class="px-4 py-3 text-xs font-mono text-indigo-400">\${acc.id}</td>
+          <td class="px-4 py-3 text-sm text-white">\${acc.email}</td>
+          <td class="px-4 py-3 text-center">
+            \${acc.statusCookie === 'active' ? '<span class="text-green-400 text-xs font-bold">🟢 Active</span>' : '<span class="text-red-400 text-xs">🔴 Expired</span>'}
+          </td>
+          <td class="px-4 py-3 text-center text-sm font-bold text-yellow-400">\${acc.creditsLeft || 0}</td>
+          <td class="px-4 py-3 text-center">
+            <button onclick="checkCredits('\${acc.id}')" class="px-2 py-1 bg-yellow-600/20 text-yellow-400 rounded text-xs mr-2"><i class="fas fa-coins"></i> Cek Saldo</button>
+            <button onclick="deleteAccount('\${acc.id}')" class="px-2 py-1 bg-red-600/20 text-red-400 rounded text-xs"><i class="fas fa-trash"></i></button>
+          </td>
+        </tr>
+      \`).join('');
+    }
 
-      tbody.innerHTML = accounts.map(acc => {
-        const proxyDisplay = acc.proxy ? maskProxy(acc.proxy) : '<span class="text-gray-600">No Proxy</span>';
-
-        const proxyStatus = {
-          'online': '<span class="flex items-center justify-center"><span class="w-2 h-2 rounded-full bg-green-500 mr-1.5"></span><span class="text-green-400 text-xs">Online</span></span>',
-          'offline': '<span class="flex items-center justify-center"><span class="w-2 h-2 rounded-full bg-red-500 mr-1.5"></span><span class="text-red-400 text-xs">Offline</span></span>',
-          'unknown': '<span class="flex items-center justify-center"><span class="w-2 h-2 rounded-full bg-gray-500 mr-1.5"></span><span class="text-gray-400 text-xs">Unknown</span></span>',
-          'none': '<span class="text-gray-600 text-xs">N/A</span>'
-        }[acc.statusProxy] || '<span class="text-gray-600 text-xs">-</span>';
-
-        const sessionStatus = {
-          'active': '<span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-500/20 text-green-400 border border-green-500/30">🟢 Active</span>',
-          'need_otp': '<span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-yellow-500/20 text-yellow-400 border border-yellow-500/30">🟡 Need OTP</span>',
-          'expired': '<span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-500/20 text-red-400 border border-red-500/30">🔴 Expired</span>',
-          'logging_in': '<span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-500/20 text-blue-400 border border-blue-500/30"><i class="fas fa-spinner fa-spin mr-1"></i>Logging in</span>'
-        }[acc.statusCookie] || '<span class="text-gray-600 text-xs">-</span>';
-
-        const creditsColor = acc.creditsLeft > 100 ? 'text-green-400' : acc.creditsLeft > 10 ? 'text-yellow-400' : 'text-red-400';
-
-        return \`
-          <tr class="table-row border-b border-white/5">
-            <td class="px-4 py-3">
-              <span class="text-xs font-mono text-indigo-400">\${acc.id}</span>
-            </td>
-            <td class="px-4 py-3">
-              <span class="text-sm text-white">\${acc.email}</span>
-            </td>
-            <td class="px-4 py-3">
-              <span class="text-xs font-mono text-gray-400">\${proxyDisplay}</span>
-            </td>
-            <td class="px-4 py-3 text-center">\${proxyStatus}</td>
-            <td class="px-4 py-3 text-center">\${sessionStatus}</td>
-            <td class="px-4 py-3 text-center">
-              <span class="text-sm font-semibold \${creditsColor}">\${acc.creditsLeft || 0}</span>
-            </td>
-            <td class="px-4 py-3 text-center">
-              <div class="flex items-center justify-center space-x-1">
-                <button onclick="triggerLogin('\${acc.id}')" class="btn-action px-2 py-1 rounded-lg bg-green-600/20 hover:bg-green-600/30 text-green-400 text-xs border border-green-500/20" title="Login/Re-Login">
-                  <i class="fas fa-sign-in-alt"></i>
-                </button>
-                <button onclick="checkCredits('\${acc.id}')" class="btn-action px-2 py-1 rounded-lg bg-yellow-600/20 hover:bg-yellow-600/30 text-yellow-400 text-xs border border-yellow-500/20" title="Check Credits">
-                  <i class="fas fa-coins"></i>
-                </button>
-                <button onclick="checkProxy('\${acc.id}')" class="btn-action px-2 py-1 rounded-lg bg-cyan-600/20 hover:bg-cyan-600/30 text-cyan-400 text-xs border border-cyan-500/20" title="Check Proxy">
-                  <i class="fas fa-network-wired"></i>
-                </button>
-                <button onclick="deleteAccount('\${acc.id}')" class="btn-action px-2 py-1 rounded-lg bg-red-600/20 hover:bg-red-600/30 text-red-400 text-xs border border-red-500/20" title="Delete">
-                  <i class="fas fa-trash"></i>
-                </button>
-              </div>
-            </td>
-          </tr>
-        \`;
-      }).join('');
+    function renderGeneratedMusic(clips) {
+      if (!clips || !clips.length) return;
+      const container = document.getElementById('generatedList');
+      container.innerHTML = clips.map(clip => \`
+        <div class="p-4 rounded-xl bg-white/5 border border-white/10 space-y-2">
+          <div class="flex items-center space-x-3">
+            <img src="\${clip.imageUrl || 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=100'}" class="w-14 h-14 rounded-lg object-cover">
+            <div>
+              <h4 class="text-white font-bold text-sm">\${clip.title || 'Untitled Song'}</h4>
+              <p class="text-xs text-gray-400">\${clip.tags || 'Music'}</p>
+            </div>
+          </div>
+          \${clip.audioUrl ? \`<audio controls class="w-full h-8 mt-2"><source src="\${clip.audioUrl}" type="audio/mpeg"></audio>\` : '<p class="text-xs text-yellow-400">Masih memproses audio...</p>'}
+        </div>
+      \`).join('') + container.innerHTML;
     }
 
     function renderTasks() {
       const tbody = document.getElementById('tasksTableBody');
-      if (!tasks.length) {
-        tbody.innerHTML = '<tr><td colspan="5" class="text-center py-12 text-gray-500"><i class="fas fa-list text-3xl mb-3 block"></i>No tasks yet.</td></tr>';
-        return;
-      }
-
-      tbody.innerHTML = tasks.slice(0, 50).map(task => {
-        const statusBadge = {
-          'processing': '<span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs bg-blue-500/20 text-blue-400 border border-blue-500/30"><i class="fas fa-spinner fa-spin mr-1"></i>Processing</span>',
-          'completed': '<span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs bg-green-500/20 text-green-400 border border-green-500/30">✅ Completed</span>',
-          'error': '<span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs bg-red-500/20 text-red-400 border border-red-500/30">❌ Error</span>',
-          'timeout': '<span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs bg-yellow-500/20 text-yellow-400 border border-yellow-500/30">⏰ Timeout</span>',
-          'queued': '<span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs bg-gray-500/20 text-gray-400 border border-gray-500/30">⏳ Queued</span>'
-        }[task.status] || '<span class="text-gray-500 text-xs">-</span>';
-
-        const createdAt = new Date(task.createdAt).toLocaleString();
-
-        return \`
-          <tr class="table-row border-b border-white/5">
-            <td class="px-4 py-3"><span class="text-xs font-mono text-indigo-400">\${task.taskId.slice(0,12)}...</span></td>
-            <td class="px-4 py-3"><span class="text-xs text-gray-400">\${task.accountId}</span></td>
-            <td class="px-4 py-3 text-center">\${statusBadge}</td>
-            <td class="px-4 py-3"><span class="text-xs text-gray-500">\${createdAt}</span></td>
-            <td class="px-4 py-3 text-center">
-              <button onclick="showTaskDetail('\${task.taskId}')" class="btn-action px-2 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-gray-400 text-xs">
-                <i class="fas fa-eye"></i>
-              </button>
-            </td>
-          </tr>
-        \`;
-      }).join('');
+      tbody.innerHTML = tasks.slice(0, 10).map(t => \`
+        <tr class="border-b border-white/5 text-xs">
+          <td class="py-2 font-mono text-gray-400">\${t.taskId.slice(0,8)}...</td>
+          <td class="py-2 text-center text-indigo-400 font-bold">\${t.status}</td>
+          <td class="py-2 text-gray-500">\${new Date(t.createdAt).toLocaleTimeString()}</td>
+        </tr>
+      \`).join('');
     }
 
     function updateStats() {
       document.getElementById('statTotalAccounts').textContent = accounts.length;
       document.getElementById('statActiveSessions').textContent = accounts.filter(a => a.statusCookie === 'active').length;
-      document.getElementById('statExpired').textContent = accounts.filter(a => a.statusCookie === 'expired').length;
-      document.getElementById('statOnlineProxies').textContent = accounts.filter(a => a.statusProxy === 'online').length;
       document.getElementById('statTotalCredits').textContent = accounts.reduce((s, a) => s + (a.creditsLeft || 0), 0);
-      document.getElementById('statActiveTasks').textContent = tasks.filter(t => t.status === 'processing' || t.status === 'queued').length;
+      document.getElementById('statActiveTasks').textContent = tasks.filter(t => t.status === 'processing').length;
     }
 
-    // ========== ACCOUNT ACTIONS ==========
-    function triggerLogin(id) {
-      showToast('Info', \`Starting login for \${id}...\`, 'info');
-      socket.emit('account:login', { id }, (result) => {
-        if (result.success) {
-          showToast('Success', 'Login successful!', 'success');
+    // Generator Form Submit
+    document.getElementById('songGenForm').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const btn = document.getElementById('btnGenSong');
+      btn.disabled = true;
+      btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Generating...';
+
+      socket.emit('song:generate', {
+        title: document.getElementById('songTitle').value,
+        style: document.getElementById('songStyle').value,
+        lyrics: document.getElementById('songLyrics').value,
+        instrumental: document.getElementById('songInstrumental').checked
+      }, (res) => {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-play mr-2"></i>Generate Song Now';
+        if (res.success) {
+          showToast('PROSES', 'Lagu sedang diproduksi oleh Suno AI...', 'info');
         } else {
-          // Toast error sudah ditangani otomatis oleh emit global 'notification' dari backend
+          showToast('ERROR', res.error, 'error');
         }
       });
-    }
+    });
 
-    function checkCredits(id) {
-      socket.emit('account:checkCredits', { id }, (result) => {
-        if (result.success) {
-          showToast('Credits', \`Account \${id}: \${result.credits} credits\`, 'info');
+    // Import Cookie Form Submit
+    document.getElementById('importCookieForm').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const btn = document.getElementById('btnImportSubmit');
+      btn.disabled = true;
+      btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Memproses...';
+
+      socket.emit('account:importCookie', {
+        email: document.getElementById('cookieEmail').value,
+        cookieJson: document.getElementById('cookieJsonRaw').value
+      }, (res) => {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-check mr-2"></i>Aktifkan Akun Sekarang';
+        if (res.success) {
+          closeModal('importCookieModal');
+          document.getElementById('importCookieForm').reset();
+          showToast('SUCCESS', 'Akun berhasil AKTIF!', 'success');
         } else {
-          showToast('Error', result.error, 'error');
+          showToast('ERROR', res.error, 'error');
         }
       });
-    }
+    });
 
-    function checkProxy(id) {
-      socket.emit('proxy:check', { id }, (result) => {
-        if (result.success) {
-          const status = result.result.online ? '🟢 Online' : '🔴 Offline';
-          showToast('Proxy Check', \`\${status} (\${result.result.latency || '-'}ms)\`, result.result.online ? 'success' : 'error');
-        } else {
-          showToast('Error', result.error, 'error');
-        }
-      });
-    }
+    function checkCredits(id) { socket.emit('account:checkCredits', { id }); }
+    function deleteAccount(id) { if (confirm('Hapus akun ini?')) socket.emit('account:delete', { id }); }
+    function refreshAll() { socket.emit('refresh:all', {}); }
 
-    function deleteAccount(id) {
-      if (!confirm(\`Delete account \${id}? This cannot be undone.\`)) return;
-      socket.emit('account:delete', { id }, (result) => {
-        if (result.success) {
-          showToast('Deleted', \`Account \${id} deleted\`, 'success');
-        } else {
-          showToast('Error', result.error, 'error');
-        }
-      });
+    function openImportCookieModal() {
+      document.getElementById('importCookieModal').classList.remove('hidden');
+      document.getElementById('importCookieModal').classList.add('flex');
     }
-
-    function checkAllProxies() {
-      showToast('Info', 'Checking all proxies...', 'info');
-      socket.emit('proxy:checkAll', {}, (result) => {
-        showToast(result.success ? 'Done' : 'Error', result.success ? 'All proxies checked' : result.error, result.success ? 'success' : 'error');
-      });
-    }
-
-    function loginAllExpired() {
-      const expired = accounts.filter(a => a.statusCookie === 'expired');
-      if (!expired.length) {
-        showToast('Info', 'No expired accounts to login', 'info');
-        return;
-      }
-      showToast('Info', \`Logging in \${expired.length} expired accounts...\`, 'info');
-      expired.forEach(acc => {
-        socket.emit('account:login', { id: acc.id });
-      });
-    }
-
-    function refreshAll() {
-      socket.emit('refresh:all', {}, () => {
-        showToast('Refreshed', 'All data refreshed', 'info');
-      });
-    }
-
-    // ========== MODALS ==========
-    function openAddAccountModal() {
-      document.getElementById('addAccountModal').classList.remove('hidden');
-      document.getElementById('addAccountModal').classList.add('flex');
-    }
-
     function closeModal(id) {
       document.getElementById(id).classList.add('hidden');
       document.getElementById(id).classList.remove('flex');
     }
 
-    document.getElementById('addAccountForm').addEventListener('submit', (e) => {
-      e.preventDefault();
-      const email = document.getElementById('accEmail').value;
-      const password = document.getElementById('accPassword').value;
-      const host = document.getElementById('proxyHost').value;
-      const port = document.getElementById('proxyPort').value;
-      const user = document.getElementById('proxyUser').value;
-      const pass = document.getElementById('proxyPass').value;
-
-      let proxy = null;
-      if (host && port) {
-        proxy = user && pass
-          ? \`http://\${user}:\${pass}@\${host}:\${port}\`
-          : \`http://\${host}:\${port}\`;
-      }
-
-      socket.emit('account:add', { email, password, proxy }, (result) => {
-        if (result.success) {
-          closeModal('addAccountModal');
-          document.getElementById('addAccountForm').reset();
-          showToast('Success', \`Account \${email} added\`, 'success');
-        } else {
-          showToast('Error', result.error, 'error');
-        }
-      });
-    });
-
-    // ========== OTP MODAL ==========
-    let otpTimerInterval;
-
-    function showOTPModal(accountId, email) {
-      document.getElementById('otpAccountId').value = accountId;
-      document.getElementById('otpAccountEmail').textContent = email;
-      document.getElementById('otpModal').classList.remove('hidden');
-      document.getElementById('otpModal').classList.add('flex');
-
-      // Clear previous inputs
-      document.querySelectorAll('.otp-digit').forEach(input => { input.value = ''; });
-      document.querySelectorAll('.otp-digit')[0].focus();
-
-      // Start timer
-      let timeLeft = 300;
-      clearInterval(otpTimerInterval);
-      otpTimerInterval = setInterval(() => {
-        timeLeft--;
-        const mins = Math.floor(timeLeft / 60);
-        const secs = timeLeft % 60;
-        document.getElementById('otpTimer').textContent = \`\${mins}:\${secs.toString().padStart(2, '0')}\`;
-        if (timeLeft <= 0) {
-          clearInterval(otpTimerInterval);
-          closeModal('otpModal');
-          showToast('Timeout', 'OTP entry timed out', 'error');
-        }
-      }, 1000);
-    }
-
-    // OTP digit input handling
-    document.querySelectorAll('.otp-digit').forEach((input, index) => {
-      input.addEventListener('input', (e) => {
-        const value = e.target.value;
-        if (value && index < 5) {
-          document.querySelectorAll('.otp-digit')[index + 1].focus();
-        }
-        // Auto-submit when all filled
-        const allFilled = Array.from(document.querySelectorAll('.otp-digit')).every(i => i.value);
-        if (allFilled) {
-          document.getElementById('otpForm').dispatchEvent(new Event('submit'));
-        }
-      });
-
-      input.addEventListener('keydown', (e) => {
-        if (e.key === 'Backspace' && !input.value && index > 0) {
-          document.querySelectorAll('.otp-digit')[index - 1].focus();
-        }
-      });
-
-      // Allow paste
-      input.addEventListener('paste', (e) => {
-        e.preventDefault();
-        const paste = (e.clipboardData || window.clipboardData).getData('text').replace(/\\D/g, '');
-        document.querySelectorAll('.otp-digit').forEach((inp, i) => {
-          if (paste[i]) inp.value = paste[i];
-        });
-        if (paste.length >= 6) {
-          document.getElementById('otpForm').dispatchEvent(new Event('submit'));
-        }
-      });
-    });
-
-    document.getElementById('otpForm').addEventListener('submit', (e) => {
-      e.preventDefault();
-      const code = Array.from(document.querySelectorAll('.otp-digit')).map(i => i.value).join('');
-      if (code.length !== 6) {
-        document.getElementById('otpError').textContent = 'Please enter all 6 digits';
-        document.getElementById('otpError').classList.remove('hidden');
-        return;
-      }
-
-      const accountId = document.getElementById('otpAccountId').value;
-      document.getElementById('otpSubmitBtn').innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Submitting...';
-      document.getElementById('otpSubmitBtn').disabled = true;
-
-      socket.emit('otp:submit', { accountId, code }, (result) => {
-        if (result.success) {
-          clearInterval(otpTimerInterval);
-          closeModal('otpModal');
-          showToast('OTP Submitted', 'OTP code sent to Puppeteer', 'success');
-        } else {
-          document.getElementById('otpError').textContent = result.error || 'Failed to submit OTP';
-          document.getElementById('otpError').classList.remove('hidden');
-        }
-        document.getElementById('otpSubmitBtn').innerHTML = '<i class="fas fa-check mr-2"></i>Submit OTP';
-        document.getElementById('otpSubmitBtn').disabled = false;
-      });
-    });
-
-    // ========== TABS ==========
     function switchTab(tab) {
-      ['accounts', 'tasks', 'logs'].forEach(t => {
+      ['accounts', 'generator', 'tasks', 'logs'].forEach(t => {
         document.getElementById(\`panel-\${t}\`).classList.toggle('hidden', t !== tab);
         document.getElementById(\`tab-\${t}\`).classList.toggle('tab-active', t === tab);
         document.getElementById(\`tab-\${t}\`).classList.toggle('text-gray-500', t !== tab);
       });
-
-      if (tab === 'tasks') {
-        socket.emit('tasks:get', {}, (t) => { tasks = t; renderTasks(); });
-      }
-    }
-
-    // ========== TASK DETAIL ==========
-    function showTaskDetail(taskId) {
-      const task = tasks.find(t => t.taskId === taskId);
-      if (task) {
-        document.getElementById('taskDetailContent').textContent = JSON.stringify(task, null, 2);
-        document.getElementById('taskDetailModal').classList.remove('hidden');
-        document.getElementById('taskDetailModal').classList.add('flex');
-      }
-    }
-
-    function clearCompletedTasks() {
-      fetch('/admin/api/tasks/clear', { method: 'POST' }).catch(() => {});
-      tasks = tasks.filter(t => t.status === 'processing' || t.status === 'queued');
-      renderTasks();
-    }
-
-    // ========== UTILITIES ==========
-    function maskProxy(proxy) {
-      try {
-        const url = new URL(proxy);
-        return \`\${url.hostname}:\${url.port}\`;
-      } catch {
-        return proxy ? proxy.substring(0, 20) + '...' : '-';
-      }
     }
 
     function showToast(title, message, type = 'info') {
-      const container = document.getElementById('toastContainer');
-      const colors = {
-        success: 'border-green-500 bg-green-500/10',
-        error: 'border-red-500 bg-red-500/10',
-        warning: 'border-yellow-500 bg-yellow-500/10',
-        info: 'border-indigo-500 bg-indigo-500/10'
-      };
-      const icons = {
-        success: 'fa-check-circle text-green-400',
-        error: 'fa-exclamation-circle text-red-400',
-        warning: 'fa-exclamation-triangle text-yellow-400',
-        info: 'fa-info-circle text-indigo-400'
-      };
-
+      const c = document.getElementById('toastContainer');
       const toast = document.createElement('div');
-      // Tambahkan 'select-text' agar bisa di-copy & z-50 agar di depan
-      toast.className = \`toast-enter glass-card rounded-xl p-4 border-l-4 \${colors[type]} min-w-[300px] max-w-md select-text relative z-50\`;
-      toast.innerHTML = \`
-        <div class="flex items-start space-x-3">
-          <i class="fas \${icons[type]} mt-0.5 shrink-0"></i>
-          <div class="flex-1 overflow-hidden">
-            <div class="text-sm font-semibold text-white">\${title}</div>
-            <!-- break-words agar text error yang panjang tidak terpotong -->
-            <div class="text-xs text-gray-300 mt-0.5 break-words whitespace-pre-wrap">\${message}</div>
-          </div>
-          <button onclick="this.parentElement.parentElement.remove()" class="text-gray-500 hover:text-white shrink-0">
-            <i class="fas fa-times text-lg"></i>
-          </button>
-        </div>
-      \`;
-      container.appendChild(toast);
-
-      // Jika tipe 'error', biarkan popup stay di layar agar bisa di-copy.
-      // Jika bukan error (info/success), hilangkan otomatis dalam 6 detik.
-      if (type !== 'error') {
-        setTimeout(() => toast.remove(), 6000);
-      }
+      toast.className = \`toast-enter glass-card rounded-xl p-4 border-l-4 \${type === 'success' ? 'border-green-500' : type === 'error' ? 'border-red-500' : 'border-indigo-500'} min-w-[300px] max-w-md\`;
+      toast.innerHTML = \`<div class="text-sm font-bold text-white">\${title}</div><div class="text-xs text-gray-300 mt-1">\${message}</div>\`;
+      c.appendChild(toast);
+      setTimeout(() => toast.remove(), 6000);
     }
 
-    function addLog(message) {
+    function addLog(msg) {
       const el = document.getElementById('logOutput');
-      const time = new Date().toLocaleTimeString();
-      el.textContent += \`[\${time}] \${message}\\n\`;
+      el.textContent += \`[\${new Date().toLocaleTimeString()}] \${msg}\\n\`;
       el.scrollTop = el.scrollHeight;
     }
 
-    // ========== INITIAL LOAD ==========
-    fetch('/admin/api/stats').then(r => r.json()).then(stats => {
-      document.getElementById('statTotalAccounts').textContent = stats.totalAccounts;
-      document.getElementById('statActiveSessions').textContent = stats.activeAccounts;
-      document.getElementById('statExpired').textContent = stats.expiredAccounts;
-      document.getElementById('statOnlineProxies').textContent = stats.onlineProxies;
-      document.getElementById('statTotalCredits').textContent = stats.totalCredits;
-      document.getElementById('statActiveTasks').textContent = stats.activeTasks;
+    fetch('/admin/api/stats').then(r=>r.json()).then(s=>{
+      document.getElementById('statTotalAccounts').textContent = s.totalAccounts;
+      document.getElementById('statActiveSessions').textContent = s.activeAccounts;
+      document.getElementById('statTotalCredits').textContent = s.totalCredits;
+      document.getElementById('statActiveTasks').textContent = s.activeTasks;
     }).catch(()=>{});
-
-    addLog('Dashboard initialized');
-    addLog('Waiting for WebSocket connection...');
   </script>
 </body>
 </html>`;
