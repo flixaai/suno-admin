@@ -1,7 +1,6 @@
 const express = require('express');
 const router = express.Router();
 const path = require('path');
-const fs = require('fs');
 const { authMiddleware, generateToken, ADMIN_USERNAME, ADMIN_PASSWORD } = require('../middleware/auth');
 const { loginLimiter } = require('../middleware/rateLimiter');
 
@@ -18,23 +17,6 @@ router.post('/login', loginLimiter, (req, res) => {
 
 router.get('/logout', (req, res) => { res.clearCookie('auth_token'); res.redirect('/admin/login'); });
 router.get('/dashboard', authMiddleware, (req, res) => { res.send(getDashboardHTML()); });
-
-// API Simpan Bright Data WS Endpoint Baru (Bisa Multi-Akun)
-router.post('/api/settings/brightdata', authMiddleware, (req, res) => {
-  try {
-    const { brightDataWS } = req.body;
-    const settingsPath = path.join(__dirname, '..', 'data', 'settings.json');
-    let current = {};
-    if (fs.existsSync(settingsPath)) {
-      current = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
-    }
-    current.brightDataWS = brightDataWS;
-    fs.writeFileSync(settingsPath, JSON.stringify(current, null, 2));
-    res.json({ success: true, message: 'Kredensial Bright Data berhasil diperbarui!' });
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
 
 function getLoginHTML() {
   return `<!DOCTYPE html>
@@ -114,7 +96,7 @@ function getDashboardHTML() {
       <div class="w-9 h-9 rounded-xl bg-orange-600 flex items-center justify-center font-black text-white text-lg shadow-lg shadow-orange-600/30">S</div>
       <div>
         <h1 class="text-sm font-bold text-white tracking-wide">SUNO <span class="text-orange-500">STUDIO</span></h1>
-        <p class="text-[10px] text-zinc-500">v6-mini Auto-Unlocker</p>
+        <p class="text-[10px] text-zinc-500">Official v3.5 Engine</p>
       </div>
     </div>
     
@@ -124,14 +106,13 @@ function getDashboardHTML() {
         <span class="text-zinc-400">Credits:</span>
         <span id="topCreditDisplay" class="text-orange-400 font-bold">250</span>
       </div>
-      <button onclick="refreshAll()" class="p-2 rounded-xl bg-zinc-800/80 hover:bg-zinc-700 text-zinc-300 transition"><i class="fas fa-sync-alt text-xs"></i></button>
+      <button onclick="refreshAll()" class="p-2 rounded-xl bg-zinc-800/80 hover:bg-zinc-700 text-zinc-300 transition" title="Refresh Data"><i class="fas fa-sync-alt text-xs"></i></button>
       <button onclick="toggleDrawer(true)" class="p-2 px-3 rounded-xl bg-orange-600 hover:bg-orange-500 text-white font-bold text-xs flex items-center space-x-1.5 transition">
         <i class="fas fa-bars"></i><span class="hidden sm:inline">Menu</span>
       </button>
     </div>
   </header>
 
-  <!-- DRAWER MENU KANAN ATAS -->
   <div id="drawerOverlay" onclick="toggleDrawer(false)" class="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 hidden"></div>
   <div id="sideDrawer" class="fixed top-0 right-0 bottom-0 w-72 bg-[#12131c] border-l border-[#202230] z-50 transform translate-x-full transition-transform duration-300 flex flex-col p-6 shadow-2xl">
     <div class="flex items-center justify-between pb-6 border-b border-[#202230]">
@@ -148,10 +129,6 @@ function getDashboardHTML() {
       <button onclick="switchTab('queue')" class="w-full p-3 rounded-xl hover:bg-zinc-800/70 text-left flex items-center space-x-3 text-zinc-300 hover:text-white">
         <i class="fas fa-list-check text-orange-500 w-5"></i><span>Task Queue</span>
       </button>
-      <!-- MENU PENGATURAN BRIGHT DATA (BISA GANTI KUNCI KAPAN SAJA) -->
-      <button onclick="openBrightDataModal()" class="w-full p-3 rounded-xl hover:bg-zinc-800/70 text-left flex items-center space-x-3 text-zinc-300 hover:text-white">
-        <i class="fas fa-network-wired text-orange-500 w-5"></i><span>Bright Data Settings</span>
-      </button>
       <button onclick="switchTab('logs')" class="w-full p-3 rounded-xl hover:bg-zinc-800/70 text-left flex items-center space-x-3 text-zinc-300 hover:text-white">
         <i class="fas fa-terminal text-orange-500 w-5"></i><span>Live Logs</span>
       </button>
@@ -165,7 +142,6 @@ function getDashboardHTML() {
 
   <main class="max-w-[1500px] w-full mx-auto px-4 lg:px-8 py-6 flex-1">
 
-    <!-- VIEW 1: DASHBOARD -->
     <div id="view-dashboard">
       <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         <div class="suno-card rounded-2xl p-4">
@@ -214,7 +190,7 @@ function getDashboardHTML() {
       </div>
     </div>
 
-    <!-- VIEW 2: SONG STUDIO -->
+    <!-- VIEW 2: SONG STUDIO (MODEL TERBUKTI V3.5 STABIL) -->
     <div id="view-generator" class="hidden">
       <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
         <div class="lg:col-span-5 suno-card rounded-2xl p-5 shadow-2xl">
@@ -223,17 +199,14 @@ function getDashboardHTML() {
               <i class="fas fa-sliders text-orange-500"></i>
               <span>Song Creator</span>
             </h2>
-            <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-orange-500/10 text-orange-400 border border-orange-500/20">AUTO UNLOCK</span>
+            <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">V3.5 STABLE</span>
           </div>
 
           <form id="songGenForm" class="space-y-4">
             <div>
               <label class="block text-xs font-semibold text-zinc-400 mb-1">Model Version</label>
               <select id="songModel" class="w-full px-3.5 py-2.5 rounded-xl suno-input text-white text-xs font-medium focus:outline-none">
-                <option value="v6-mini" selected>✨ v6-mini (Free / Gratis Terbaru - Super Jernih)</option>
-                <option value="v6">🔥 v6 (Pro - Full Quality)</option>
-                <option value="v4">💎 v4 (Pro - Klasik)</option>
-                <option value="v3.5">v3.5 (Standar Klasik)</option>
+                <option value="v3.5" selected>⭐ v3.5 (Paling Stabil - Terbukti Berhasil di Suno)</option>
               </select>
             </div>
 
@@ -344,25 +317,6 @@ function getDashboardHTML() {
     </div>
   </div>
 
-  <!-- MODAL PENGATURAN BRIGHT DATA (BISA GANTI KUNCI AKUN KAPAN SAJA) -->
-  <div id="brightDataModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-    <div class="suno-card rounded-2xl p-6 w-full max-w-md">
-      <div class="flex items-center justify-between mb-4">
-        <h3 class="text-sm font-bold text-white">Pengaturan Bright Data (Multi-Akun)</h3>
-        <button onclick="closeModal('brightDataModal')" class="text-zinc-500 hover:text-white"><i class="fas fa-times"></i></button>
-      </div>
-      <p class="text-[11px] text-zinc-400 mb-3">Jika saldo gratis akun lama habis, buat akun baru di Bright Data lalu tempelkan link WebSocket (wss://...) barunya di sini:</p>
-      <form id="brightDataForm" class="space-y-4">
-        <div>
-          <label class="block text-xs font-semibold text-zinc-400 mb-1">WebSocket URL (wss://...)</label>
-          <input type="text" id="bdWsInput" required class="w-full px-3.5 py-2.5 rounded-xl suno-input text-white text-xs font-mono focus:outline-none" value="wss://brd-customer-hl_c154ff17-zone-suno_browser:ar1oslh5xtvr@brd.superproxy.io:9222">
-        </div>
-        <button type="submit" class="w-full py-2.5 rounded-xl bg-orange-600 hover:bg-orange-500 text-white font-bold text-xs transition">Simpan Kredensial Baru</button>
-      </form>
-    </div>
-  </div>
-
-  <!-- Toast Container -->
   <div id="toastContainer" class="fixed top-4 right-4 z-50 space-y-2 select-text"></div>
 
   <script>
@@ -453,7 +407,7 @@ function getDashboardHTML() {
             <div class="overflow-hidden">
               <div class="flex items-center space-x-2">
                 <h4 class="text-xs font-bold text-white truncate max-w-[180px] sm:max-w-[260px]">\${clip.title}</h4>
-                <span class="text-[9px] font-bold px-1.5 py-0.2 rounded bg-zinc-800 text-zinc-400">\${clip.model || 'V6-MINI'}</span>
+                <span class="text-[9px] font-bold px-1.5 py-0.2 rounded bg-zinc-800 text-zinc-400">\${clip.model || 'v3.5'}</span>
               </div>
               <p class="text-[11px] text-zinc-400 truncate mt-0.5">\${clip.tags}</p>
               <span class="text-[10px] text-zinc-500"><i class="far fa-clock mr-1"></i>\${clip.duration || '3:00'}</span>
@@ -463,7 +417,7 @@ function getDashboardHTML() {
             <button onclick="openMiniPlayer('\${clip.id}', '\${clip.title}', '\${clip.tags}', '\${clip.imageUrl}')" class="p-2.5 rounded-xl bg-orange-600/10 text-orange-400 hover:bg-orange-600 hover:text-white text-xs transition">
               <i class="fas fa-play"></i>
             </button>
-            <a href="/api/v1/audio/\${clip.id}?download=true&title=\${encodeURIComponent(clip.title)}" class="p-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs transition">
+            <a href="/api/v1/audio/\${clip.id}?download=true&title=\${encodeURIComponent(clip.title)}" class="p-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs transition" title="Download MP3">
               <i class="fas fa-download"></i>
             </a>
           </div>
@@ -540,10 +494,10 @@ function getDashboardHTML() {
       e.preventDefault();
       const btn = document.getElementById('btnGenSong');
       btn.disabled = true;
-      btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Generating (Auto-Unlocking)...';
+      btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Generating 2 Songs...';
 
       socket.emit('song:generate', {
-        modelVersion: document.getElementById('songModel').value,
+        modelVersion: 'v3.5',
         title: document.getElementById('songTitle').value,
         style: document.getElementById('songStyle').value,
         lyrics: document.getElementById('songLyrics').value,
@@ -552,7 +506,7 @@ function getDashboardHTML() {
         btn.disabled = false;
         btn.innerHTML = '<i class="fas fa-wand-magic-sparkles mr-2"></i>Generate Song Now';
         if (res.success) {
-          showToast('PROSES', 'Lagu sedang diproduksi oleh Suno AI...', 'info');
+          showToast('PROSES', '2 Lagu sedang diproduksi oleh Suno AI...', 'info');
         } else {
           showToast('ERROR', res.error, 'error');
         }
@@ -581,28 +535,6 @@ function getDashboardHTML() {
       });
     });
 
-    // SIMPAN KREDENSIAL BRIGHT DATA BARU (MULTI-AKUN)
-    document.getElementById('brightDataForm').addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const ws = document.getElementById('bdWsInput').value;
-      try {
-        const res = await fetch('/admin/api/settings/brightdata', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ brightDataWS: ws })
-        });
-        const data = await res.json();
-        if (data.success) {
-          closeModal('brightDataModal');
-          showToast('SUCCESS', 'Kredensial Bright Data berhasil disimpan!', 'success');
-        } else {
-          showToast('ERROR', data.error, 'error');
-        }
-      } catch (err) {
-        showToast('ERROR', err.message, 'error');
-      }
-    });
-
     function checkCredits(id) { socket.emit('account:checkCredits', { id }); }
     function deleteAccountDirect(id) {
       socket.emit('account:delete', { id });
@@ -613,11 +545,6 @@ function getDashboardHTML() {
     function openImportCookieModal() {
       document.getElementById('importCookieModal').classList.remove('hidden');
       document.getElementById('importCookieModal').classList.add('flex');
-    }
-    function openBrightDataModal() {
-      toggleDrawer(false);
-      document.getElementById('brightDataModal').classList.remove('hidden');
-      document.getElementById('brightDataModal').classList.add('flex');
     }
     function closeModal(id) {
       document.getElementById(id).classList.add('hidden');
