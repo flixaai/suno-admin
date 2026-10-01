@@ -8,26 +8,19 @@ class SessionManager {
     this.accountManager = accountManager;
     this.otpCallbacks = new Map();
     this.loginLocks = new Set();
-    
-    // Kredensial Superkomputer Bright Data Milik Anda
     this.brightDataWS = process.env.BRIGHT_DATA_WS || 'wss://brd-customer-hl_c154ff17-zone-suno_browser:ar1oslh5xtvr@brd.superproxy.io:9222';
   }
 
+  // DEKODER BASE64URL RESMI (MENCEGAH ERROR SALAH BACA TOKEN)
   decodeJwt(token) {
     try {
-      const base64Payload = token.split('.')[1];
-      const payload = Buffer.from(base64Payload, 'base64').toString('utf8');
-      return JSON.parse(payload);
+      let base64 = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+      while (base64.length % 4) { base64 += '='; }
+      const jsonPayload = Buffer.from(base64, 'base64').toString('utf8');
+      return JSON.parse(jsonPayload);
     } catch (e) {
       return null;
     }
-  }
-
-  isTokenExpiring(token) {
-    const payload = this.decodeJwt(token);
-    if (!payload || !payload.exp) return true;
-    const now = Math.floor(Date.now() / 1000);
-    return payload.exp - now < 300; // kurang dari 5 menit
   }
 
   importCookieData(accountId, cookieJsonString) {
@@ -55,10 +48,6 @@ class SessionManager {
     }
   }
 
-  // =========================================================================
-  // SKENARIO 1: PENJAGA SESI OTOMATIS MENGGUNAKAN SUPERKOMPUTER BRIGHT DATA
-  // Membuka Suno di cloud selama 3 detik untuk mengambil token resmi baru
-  // =========================================================================
   async refreshToken(accountId) {
     let browser = null;
     try {
@@ -67,32 +56,18 @@ class SessionManager {
 
       logger.info(`[Bright Data Keep-Alive] Menjalankan Penjaga Sesi Cloud untuk ${accountId}...`);
 
-      browser = await puppeteer.connect({
-        browserWSEndpoint: this.brightDataWS
-      });
-
+      browser = await puppeteer.connect({ browserWSEndpoint: this.brightDataWS });
       const page = await browser.newPage();
 
-      // Pasang cookie akun Anda ke dalam browser Bright Data
       const cookieObjects = session.cookies.split('; ').map(c => {
         const [name, ...val] = c.split('=');
-        return {
-          name: name.trim(),
-          value: val.join('=').trim(),
-          domain: '.suno.com',
-          path: '/'
-        };
+        return { name: name.trim(), value: val.join('=').trim(), domain: '.suno.com', path: '/' };
       });
 
       await page.setCookie(...cookieObjects);
-
-      // Buka Suno secara instan
       await page.goto('https://suno.com', { waitUntil: 'domcontentloaded', timeout: 30000 });
-
-      // Tunggu Clerk siap di browser (hanya 3-5 detik)
       await page.waitForFunction(() => window.Clerk && window.Clerk.isReady, { timeout: 20000 });
 
-      // Minta token baru langsung dari Clerk resmi di dalam browser
       const newToken = await page.evaluate(async () => {
         if (window.Clerk && window.Clerk.session) {
           return await window.Clerk.session.getToken();
