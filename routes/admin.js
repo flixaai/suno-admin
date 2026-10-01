@@ -471,6 +471,7 @@ function getDashboardHTML() {
       });
     });
 
+    // PERBAIKAN SINTAKS BARIS 489: MENGGUNAKAN TEKS STANDAR TANPA BACKTICK
     document.getElementById('importCookieForm').addEventListener('submit', (e) => {
       e.preventDefault();
       const btn = document.getElementById('btnImportSubmit');
@@ -486,7 +487,7 @@ function getDashboardHTML() {
         if (res.success) {
           closeModal('importCookieModal');
           document.getElementById('importCookieForm').reset();
-          showToast('SUCCESS', `Akun AKTIF! Saldo: ${res.credits} Kredit`, 'success');
+          showToast('SUCCESS', 'Akun AKTIF! Saldo: ' + res.credits + ' Kredit', 'success');
         } else {
           showToast('ERROR', res.error, 'error');
         }
