@@ -21,7 +21,7 @@ class SessionManager {
       const account = this.accountManager.getAccountRaw(accountId);
       if (!account) throw new Error(`Akun tidak ditemukan: ${accountId}`);
 
-      logger.info(`[Ultra-Lite Browser] Membuka browser untuk ${account.email}...`);
+      logger.info(`[Stealth Mode] Memulai browser penyamaran untuk ${account.email}...`);
       this.accountManager.updateAccount(accountId, { statusCookie: 'logging_in' });
       global.io.emit('account:status', { id: accountId, statusCookie: 'logging_in' });
 
@@ -30,13 +30,13 @@ class SessionManager {
       const page = browserInstance.page;
 
       // ========================================================
-      // OPTIMASI RAM RAILWAY EXTREME: Blokir semua kecuali Script
+      // TAKTIK NINJA: Izinkan Gambar & CSS agar Cloudflare percaya
+      // Hanya blokir Media berat (Video/Audio)
       // ========================================================
       await page.setRequestInterception(true);
       page.on('request', (req) => {
         const type = req.resourceType();
-        // Blokir gambar, CSS, video, font agar browser sangat ringan dan tidak crash
-        if (['image', 'stylesheet', 'media', 'font', 'websocket'].includes(type) || req.url().endsWith('.mp4')) {
+        if (['media', 'font'].includes(type) || req.url().endsWith('.mp4')) {
           req.abort();
         } else {
           req.continue();
@@ -44,20 +44,38 @@ class SessionManager {
       });
 
       // 2. Akses halaman Suno
-      logger.info('Memuat Suno.com dalam mode ringan...');
+      logger.info('Mendatangi pintu gerbang Suno.com...');
       try {
-        // Cukup tunggu sampai DOM selesai (tidak perlu tunggu gambar loading)
-        await page.goto('https://suno.com', { waitUntil: 'domcontentloaded', timeout: 45000 });
+        await page.goto('https://suno.com', { waitUntil: 'networkidle2', timeout: 45000 });
       } catch (navErr) {
-        logger.warn('Timeout saat memuat halaman, mencoba melanjutkan eksekusi script...');
+        logger.warn('Halaman loading lambat, mencoba memaksa masuk...');
       }
 
-      // Tunggu Clerk API siap
-      logger.info('Menunggu sistem keamanan siap...');
-      await page.waitForFunction(() => window.Clerk && window.Clerk.isReady, { timeout: 40000 });
+      // 3. Menembus Cloudflare dengan Loop Pengecekan
+      logger.info('Menunggu Satpam Cloudflare membukakan jalan...');
+      let isClerkReady = false;
+      
+      // Bot akan mengecek setiap 2 detik, maksimal 20 kali percobaan (40 detik total)
+      for (let i = 0; i < 20; i++) {
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        isClerkReady = await page.evaluate(() => {
+            return !!(window.Clerk && window.Clerk.isReady);
+        });
+        
+        if (isClerkReady) {
+            logger.info('Berhasil melewati Cloudflare! Pintu login terbuka.');
+            break;
+        }
+      }
 
-      // 3. Eksekusi Login
-      logger.info('Mengeksekusi proses Sign-In...');
+      // Jika setelah ditunggu lama tetap tidak buka, berarti terjebak Captcha parah
+      if (!isClerkReady) {
+          // Ambil screenshot halaman (opsional jika ingin melihat kenapa macet)
+          throw new Error('Gagal menembus Cloudflare. Layar tertahan di pengecekan Captcha.');
+      }
+
+      // 4. Eksekusi Login karena Pintu Sudah Terbuka
+      logger.info('Memasukkan kredensial ke sistem Suno...');
       const authResult = await page.evaluate(async (email) => {
         try {
           const signInRes = await window.Clerk.client.signIn.create({ identifier: email });
@@ -85,26 +103,24 @@ class SessionManager {
       }, account.email);
 
       if (!authResult.success) {
-        // Jika error mengandung kata "phone", berarti IP Proxy ditolak.
         if (authResult.error.includes('phone')) {
-             throw new Error("DITOLAK: IP Proxy ini meminta verifikasi Nomor HP. Ganti Proxy Anda!");
+             throw new Error("DITOLAK: Sistem meminta verifikasi Nomor HP. IP Anda dicurigai.");
         }
         throw new Error(`Sistem Menolak: ${authResult.error}`);
       }
 
-      // 4. Minta OTP di Dashboard
-      logger.info(`[SUCCESS] Kode OTP dikirim ke ${account.email}. Menunggu input...`);
+      // 5. Minta OTP di Dashboard
+      logger.info(`[SUCCESS] Kode OTP dikirim ke ${account.email}. Cek Email Anda!`);
       this.accountManager.updateAccount(accountId, { statusCookie: 'need_otp' });
       global.io.emit('account:status', { id: accountId, statusCookie: 'need_otp' });
       global.io.emit('otp:required', { accountId, email: account.email, timestamp: new Date().toISOString() });
 
-      // Tunggu input 6 angka (Max 5 Menit)
       const otpCode = await this.waitForOTP(accountId, 300000);
-      if (!otpCode) throw new Error('Timeout: OTP tidak dimasukkan.');
+      if (!otpCode) throw new Error('Timeout: OTP tidak dimasukkan dalam 5 menit.');
 
       logger.info(`Memverifikasi OTP (${otpCode})...`);
 
-      // 5. Verifikasi OTP
+      // 6. Verifikasi OTP
       const verifyResult = await page.evaluate(async (code, mode) => {
         try {
           let completeRes;
@@ -129,14 +145,14 @@ class SessionManager {
         throw new Error(`OTP Salah / Gagal: ${verifyResult.error}`);
       }
 
-      // 6. Ambil Cookies & Token
+      // 7. Ambil Cookies & Token
       const bearerToken = verifyResult.token;
       const cookies = await page.cookies();
       const cookiesString = cookies.map(c => `${c.name}=${c.value}`).join('; ');
 
       if (!bearerToken) throw new Error('Berhasil tapi gagal mendapat token.');
 
-      // 7. Selesai
+      // 8. Selesai
       this.saveSession(accountId, { bearerToken, cookies: cookiesString });
 
       this.accountManager.updateAccount(accountId, {
@@ -153,9 +169,8 @@ class SessionManager {
     } catch (err) {
       let errorMsg = err.message;
       
-      // Jika terjadi error target closed, beri penjelasan bahasa Indonesia
       if (errorMsg.includes('Target closed') || errorMsg.includes('Session closed')) {
-          errorMsg = "Server Railway Kehabisan RAM / Browser Crash. Coba tekan login lagi.";
+          errorMsg = "Server Railway Kehabisan RAM / Browser Crash karena terlalu berat.";
       }
 
       logger.error(`Login Error: ${errorMsg}`);
