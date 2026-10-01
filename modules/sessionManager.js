@@ -56,15 +56,10 @@ class SessionManager {
       browser = await puppeteer.connect({ browserWSEndpoint: wsUrl });
       const page = await browser.newPage();
 
-      // Hindari tabrakan cookie __session di Bright Data
-      const safeCookies = session.cookies.split('; ').map(c => {
-        const [name, ...val] = c.split('=');
-        return { name: name.trim(), value: val.join('=').trim(), domain: '.suno.com', path: '/' };
-      }).filter(c => c.name !== '__session');
-
-      if (safeCookies.length) {
-        await page.setCookie(...safeCookies);
-      }
+      // Gunakan setExtraHTTPHeaders (Bukan setCookie)
+      await page.setExtraHTTPHeaders({
+        'Cookie': session.cookies
+      });
 
       await page.goto('https://suno.com', { waitUntil: 'domcontentloaded', timeout: 30000 });
       await page.waitForFunction(() => window.Clerk && window.Clerk.isReady, { timeout: 20000 });
