@@ -10,7 +10,6 @@ class SessionManager {
     this.loginLocks = new Set();
   }
 
-  // Helper untuk membaca isi token & tanggal kadaluarsa
   decodeJwt(token) {
     try {
       const base64Payload = token.split('.')[1];
@@ -21,12 +20,11 @@ class SessionManager {
     }
   }
 
-  // Cek apakah token tinggal kurang dari 5 menit sebelum kadaluarsa
   isTokenExpiring(token) {
     const payload = this.decodeJwt(token);
     if (!payload || !payload.exp) return true;
     const now = Math.floor(Date.now() / 1000);
-    return payload.exp - now < 300; // kurang dari 5 menit
+    return payload.exp - now < 300;
   }
 
   importCookieData(accountId, cookieJsonString) {
@@ -54,9 +52,6 @@ class SessionManager {
     }
   }
 
-  // =========================================================================
-  // MESIN AUTO-REFRESH 24/7 (MEMPERPANJANG TOKEN TANPA INPUT COOKIE LAGI)
-  // =========================================================================
   async refreshToken(accountId) {
     try {
       const session = this.loadSession(accountId);
@@ -65,7 +60,7 @@ class SessionManager {
       const payload = this.decodeJwt(session.bearerToken);
       const sessionId = payload?.sid;
 
-      logger.info(`[Auto-Pilot] Memperbarui sesi Suno secara mandiri untuk ${accountId}...`);
+      logger.info(`[Auto-Refresh] Memperbarui sesi Suno secara mandiri untuk ${accountId}...`);
 
       const headers = {
         'Cookie': session.cookies,
@@ -76,7 +71,7 @@ class SessionManager {
 
       let newToken = null;
 
-      // Jalur 1: Minting Token Baru via Session ID Resmi Clerk
+      // Jalur 1: Meminta Token Baru Berdasarkan Session ID
       if (sessionId) {
         try {
           const res = await axios.post(
@@ -88,7 +83,7 @@ class SessionManager {
         } catch (e) {}
       }
 
-      // Jalur 2: Ambil Token Aktif via Client State
+      // Jalur 2: Meminta Token Baru Berdasarkan Client State
       if (!newToken) {
         try {
           const res = await axios.get('https://clerk.suno.com/v1/client?_clerk_js_version=5.0.0', {
@@ -111,11 +106,11 @@ class SessionManager {
           statusCookie: 'active',
           lastLogin: new Date().toISOString()
         });
-        logger.info(`[Auto-Pilot SUCCESS] Token berhasil diperpanjang 1 jam ke depan!`);
+        logger.info(`[Auto-Refresh SUCCESS] Token berhasil diperpanjang 1 jam ke depan!`);
         return true;
       }
     } catch (err) {
-      logger.warn(`[Auto-Pilot Warning] Gagal refresh: ${err.message}`);
+      logger.warn(`[Auto-Refresh Warning] Gagal refresh: ${err.message}`);
     }
     return false;
   }
