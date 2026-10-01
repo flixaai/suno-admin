@@ -1,315 +1,50 @@
-const fs = require('fs');
-const path = require('path');
-const CaptchaSolver = require('./captchaSolver');
+const puppeteer = require('puppeteer-extra');
+const StealthPlugin = require('puppeteer-extra-plugin-stealth');
+puppeteer.use(StealthPlugin());
 
-class SessionManager {
-  constructor(browserManager, accountManager) {
-    this.browserManager = browserManager;
-    this.accountManager = accountManager;
-    this.captchaSolver = new CaptchaSolver();
-    this.otpCallbacks = new Map();
-    this.loginLocks = new Set();
-  }
+class BrowserManager {
+  constructor() { this.browsers = new Map(); }
 
-  async login(accountId) {
-    if (this.loginLocks.has(accountId)) {
-      logger.warn(`Login in progress for ${accountId}`);
-      return { success: false, error: 'Login in progress' };
-    }
+  async launch(accountId, proxy = null) {
+    await this.close(accountId);
+    const args = [
+      '--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage',
+      '--disable-accelerated-2d-canvas', '--no-first-run', '--no-zygote',
+      '--disable-gpu', '--window-size=1280,720'
+    ];
+    
+    if (proxy) args.push(`--proxy-server=${proxy}`);
 
-    this.loginLocks.add(accountId);
-
-    try {
-      const account = this.accountManager.getAccountRaw(accountId);
-      if (!account) throw new Error(`Account not found: ${accountId}`);
-
-      logger.info(`[Clerk SDK Engine] Starting login for: ${account.email}`);
-      this.accountManager.updateAccount(accountId, { statusCookie: 'logging_in' });
-      global.io.emit('account:status', { id: accountId, statusCookie: 'logging_in' });
-
-      // Launch Browser Stealth via Proxy
-      const { page } = await this.browserManager.launch(accountId, account.proxy);
-      const sunoUrl = process.env.SUNO_BASE_URL || 'https://suno.com';
-
-      // 1. Buka halaman Create Suno langsung (Memaksa Clerk Auth Ter-load)
-      logger.info(`Navigating directly to ${sunoUrl}/create...`);
-      await page.goto(`${sunoUrl}/create`, { waitUntil: 'domcontentloaded', timeout: 45000 });
-      await this.randomDelay(3000, 5000);
-
-      // Tangani Cloudflare jika muncul
-      if (await this.detectCloudflare(page)) {
-        logger.info('Cloudflare challenge detected, solving...');
-        await this.handleCloudflare(page);
-        await this.randomDelay(3000, 5000);
-      }
-
-      // Klik tombol Sign-in jika ada di layar untuk memastikan Clerk SDK ter-inject
-      try {
-        const loginBtn = await page.$('button:has-text("Log in"), button:has-text("Sign in"), [data-testid*="sign-in"]');
-        if (loginBtn) {
-          await loginBtn.click();
-          await this.randomDelay(1500, 3000);
-        }
-      } catch (e) {}
-
-      // Tunggu hingga objek window.Clerk siap di browser
-      logger.info('Waiting for Suno Clerk SDK object...');
-      await page.waitForFunction(() => {
-        return typeof window.Clerk !== 'undefined' && window.Clerk.client;
-      }, { timeout: 40000 });
-
-      // 2. REQUEST KODE OTP VIA NATIVE CLERK SDK
-      logger.info(`Requesting OTP for ${account.email} via Clerk SDK...`);
-
-      const initAuth = await page.evaluate(async (email) => {
-        try {
-          if (!window.Clerk || !window.Clerk.client) {
-            return { success: false, error: 'Clerk SDK not ready' };
-          }
-
-          // A. Coba Sign-In Terlebih Dahulu
-          try {
-            const signIn = await window.Clerk.client.signIn.create({ identifier: email });
-            const emailFactor = signIn.supportedFirstFactors?.find(f => f.strategy === 'email_code');
-
-            if (emailFactor) {
-              await signIn.prepareFirstFactor({
-                strategy: 'email_code',
-                emailAddressId: emailFactor.emailAddressId
-              });
-              return { success: true, isSignUp: false };
-            } else {
-              return { success: false, error: 'Email OTP strategy unavailable' };
-            }
-          } catch (signInErr) {
-            // B. Jika Email Belum Terdaftar -> Sign-Up (Daftar Akun Baru)
-            const errors = signInErr.errors || [];
-            const isNotFound = errors.some(e => e.code === 'form_identifier_not_found' || e.message?.includes('not found'));
-
-            if (isNotFound) {
-              const signUp = await window.Clerk.client.signUp.create({ emailAddress: email });
-              await signUp.prepareEmailAddressVerification({ strategy: 'email_code' });
-              return { success: true, isSignUp: true };
-            }
-
-            return {
-              success: false,
-              error: errors[0]?.longMessage || errors[0]?.message || signInErr.message
-            };
-          }
-        } catch (err) {
-          return { success: false, error: err.message };
-        }
-      }, account.email);
-
-      if (!initAuth.success) {
-        throw new Error(`OTP Request Error: ${initAuth.error}`);
-      }
-
-      // 3. SUNO BERHASIL MENGIRIM KODE OTP -> TRIGER POP-UP OTP DI WEB ADMIN
-      logger.info(`OTP Code successfully sent to ${account.email}! Waiting for Dashboard input...`);
-
-      this.accountManager.updateAccount(accountId, { statusCookie: 'need_otp' });
-      global.io.emit('account:status', { id: accountId, statusCookie: 'need_otp' });
-      global.io.emit('otp:required', {
-        accountId,
-        email: account.email,
-        timestamp: new Date().toISOString()
-      });
-
-      // Tunggu Pengguna Input Kode 6-Digit di Web Admin (Timeout 5 Menit)
-      const otpCode = await this.waitForOTP(accountId, 300000);
-      if (!otpCode) throw new Error('OTP Timeout - No code entered within 5 minutes');
-
-      logger.info(`Submitting OTP Code (${otpCode}) via Clerk SDK...`);
-
-      // 4. SUBMIT & VERIFIKASI OTP VIA CLERK SDK
-      const verifyResult = await page.evaluate(async (isSignUp, code) => {
-        try {
-          if (isSignUp) {
-            const signUp = window.Clerk.client.signUp;
-            const res = await signUp.attemptEmailAddressVerification({ code });
-            if (res.status === 'complete') {
-              if (res.createdSessionId) await window.Clerk.setActive({ session: res.createdSessionId });
-              return { success: true };
-            }
-            return { success: false, error: `SignUp status: ${res.status}` };
-          } else {
-            const signIn = window.Clerk.client.signIn;
-            const res = await signIn.attemptFirstFactor({ strategy: 'email_code', code });
-            if (res.status === 'complete') {
-              if (res.createdSessionId) await window.Clerk.setActive({ session: res.createdSessionId });
-              return { success: true };
-            }
-            return { success: false, error: `SignIn status: ${res.status}` };
-          }
-        } catch (err) {
-          const errors = err.errors || [];
-          return {
-            success: false,
-            error: errors[0]?.longMessage || errors[0]?.message || err.message
-          };
-        }
-      }, initAuth.isSignUp, otpCode);
-
-      if (!verifyResult.success) {
-        throw new Error(`OTP Verification Failed: ${verifyResult.error}`);
-      }
-
-      // 5. AMBIL SESSION COOKIES & BEARER TOKEN
-      await this.randomDelay(2000, 3000);
-
-      const sessionData = await this.extractSession(page, accountId);
-      if (!sessionData.bearerToken) {
-        throw new Error('Failed to capture Bearer Token after OTP verification');
-      }
-
-      await this.saveSession(accountId, sessionData);
-
-      this.accountManager.updateAccount(accountId, {
-        statusCookie: 'active',
-        bearerToken: sessionData.bearerToken,
-        lastLogin: new Date().toISOString()
-      });
-
-      global.io.emit('account:status', { id: accountId, statusCookie: 'active' });
-      global.io.emit('notification', { type: 'success', message: `Verifikasi Sukses! Akun ${account.email} Aktif.` });
-
-      logger.info(`SUCCESS: Account ${accountId} fully activated!`);
-      await this.browserManager.close(accountId);
-      return { success: true };
-
-    } catch (err) {
-      logger.error(`Login failed for ${accountId}:`, err.message);
-      this.accountManager.updateAccount(accountId, { statusCookie: 'expired' });
-      global.io.emit('account:status', { id: accountId, statusCookie: 'expired' });
-      global.io.emit('notification', { type: 'error', message: `Login gagal: ${err.message}` });
-
-      await this.browserManager.close(accountId);
-      return { success: false, error: err.message };
-    } finally {
-      this.loginLocks.delete(accountId);
-    }
-  }
-
-  waitForOTP(accountId, timeout = 300000) {
-    return new Promise((resolve) => {
-      const timer = setTimeout(() => {
-        this.otpCallbacks.delete(accountId);
-        resolve(null);
-      }, timeout);
-
-      this.otpCallbacks.set(accountId, (code) => {
-        clearTimeout(timer);
-        this.otpCallbacks.delete(accountId);
-        resolve(code);
-      });
+    const browser = await puppeteer.launch({
+      headless: "new",
+      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
+      args
     });
-  }
 
-  submitOTP(accountId, code) {
-    const callback = this.otpCallbacks.get(accountId);
-    if (callback) {
-      callback(code);
-      return true;
-    }
-    return false;
-  }
-
-  async detectCloudflare(page) {
-    try {
-      const content = await page.content();
-      return content.includes('cf-turnstile') || content.includes('Checking your browser');
-    } catch {
-      return false;
-    }
-  }
-
-  async handleCloudflare(page) {
-    try {
-      const siteKey = await page.evaluate(() => {
-        const div = document.querySelector('[data-sitekey]');
-        return div ? div.getAttribute('data-sitekey') : null;
-      });
-
-      if (siteKey) {
-        const token = await this.captchaSolver.solveTurnstile(siteKey, page.url());
-        await this.captchaSolver.injectCaptchaSolution(page, token);
+    const page = await browser.newPage();
+    
+    // --- FITUR BARU: BLOKIR BEBAN BERAT ---
+    await page.setRequestInterception(true);
+    page.on('request', (req) => {
+      const type = req.resourceType();
+      // Blokir gambar, media (audio/video), fonts, dan stylesheet agar Suno terbuka dalam 3 detik
+      if (['image', 'media', 'font', 'stylesheet'].includes(type)) {
+        req.abort();
       } else {
-        await this.randomDelay(5000, 8000);
+        req.continue();
       }
-    } catch (err) {
-      logger.error('Cloudflare error:', err.message);
-    }
-  }
-
-  async extractSession(page, accountId) {
-    const cookies = await page.cookies();
-
-    const bearerToken = await page.evaluate(async () => {
-      try {
-        if (window.Clerk && window.Clerk.session) {
-          return await window.Clerk.session.getToken();
-        }
-      } catch (e) {}
-
-      for (let i = 0; i < window.localStorage.length; i++) {
-        const key = window.localStorage.key(i);
-        const val = window.localStorage.getItem(key);
-        if (val && val.includes('eyJ')) {
-          try {
-            const parsed = JSON.parse(val);
-            if (parsed.jwt) return parsed.jwt;
-            if (typeof parsed === 'string') return parsed;
-          } catch (e) {
-            if (val.startsWith('eyJ')) return val;
-          }
-        }
-      }
-      return null;
     });
 
-    return {
-      accountId,
-      cookies,
-      bearerToken,
-      extractedAt: new Date().toISOString(),
-      expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
-    };
+    this.browsers.set(accountId, { browser, page });
+    return { browser, page };
   }
 
-  async saveSession(accountId, sessionData) {
-    const dir = path.join(__dirname, '..', 'sessions');
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(path.join(dir, `${accountId}.json`), JSON.stringify(sessionData, null, 2));
-  }
-
-  loadSession(accountId) {
-    const filePath = path.join(__dirname, '..', 'sessions', `${accountId}.json`);
-    if (!fs.existsSync(filePath)) return null;
-    try {
-      return JSON.parse(fs.readFileSync(filePath, 'utf-8'));
-    } catch {
-      return null;
+  async close(accountId) {
+    const instance = this.browsers.get(accountId);
+    if (instance) {
+      try { await instance.browser.close(); } catch (e) {}
+      this.browsers.delete(accountId);
     }
-  }
-
-  async healthCheck(accountId) {
-    const session = this.loadSession(accountId);
-    if (!session || !session.bearerToken) {
-      this.accountManager.updateAccount(accountId, { statusCookie: 'expired' });
-      return false;
-    }
-    return true;
-  }
-
-  async refreshToken(accountId) {
-    return this.login(accountId);
-  }
-
-  randomDelay(min, max) {
-    return new Promise(r => setTimeout(r, Math.floor(Math.random() * (max - min + 1)) + min));
   }
 }
-
-module.exports = SessionManager;
+module.exports = BrowserManager;
