@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const puppeteer = require('puppeteer');
 
 class SessionManager {
   constructor(browserManager, accountManager) {
@@ -7,75 +8,47 @@ class SessionManager {
     this.accountManager = accountManager;
     this.otpCallbacks = new Map();
     this.loginLocks = new Set();
+    
+    // Kredensial Bright Data Scraping Browser Super Sakti
+    this.brightDataWS = process.env.BRIGHT_DATA_WS || 'wss://brd-customer-hl_c154ff17-zone-suno_browser:ar1oslh5xtvr@brd.superproxy.io:9222';
   }
 
   async login(accountId) {
     if (this.loginLocks.has(accountId)) {
-      return { success: false, error: 'Login sedang diproses...' };
+      return { success: false, error: 'Login sedang berlangsung...' };
     }
 
     this.loginLocks.add(accountId);
-    let browserInstance = null;
+    let browser = null;
 
     try {
       const account = this.accountManager.getAccountRaw(accountId);
       if (!account) throw new Error(`Akun tidak ditemukan: ${accountId}`);
 
-      logger.info(`[Stealth Mode] Memulai browser penyamaran untuk ${account.email}...`);
+      logger.info(`[Bright Data Cloud Engine] Menghubungkan ke Super-Browser untuk ${account.email}...`);
       this.accountManager.updateAccount(accountId, { statusCookie: 'logging_in' });
       global.io.emit('account:status', { id: accountId, statusCookie: 'logging_in' });
 
-      // 1. Buka Browser
-      browserInstance = await this.browserManager.launch(accountId, account.proxy);
-      const page = browserInstance.page;
-
-      // ========================================================
-      // TAKTIK NINJA: Izinkan Gambar & CSS agar Cloudflare percaya
-      // Hanya blokir Media berat (Video/Audio)
-      // ========================================================
-      await page.setRequestInterception(true);
-      page.on('request', (req) => {
-        const type = req.resourceType();
-        if (['media', 'font'].includes(type) || req.url().endsWith('.mp4')) {
-          req.abort();
-        } else {
-          req.continue();
-        }
+      // 1. KONEKSI KE SUPER-BROWSER BRIGHT DATA (Bypass Cloudflare & Anti-Bot 100%)
+      browser = await puppeteer.connect({
+        browserWSEndpoint: this.brightDataWS
       });
 
-      // 2. Akses halaman Suno
-      logger.info('Mendatangi pintu gerbang Suno.com...');
-      try {
-        await page.goto('https://suno.com', { waitUntil: 'networkidle2', timeout: 45000 });
-      } catch (navErr) {
-        logger.warn('Halaman loading lambat, mencoba memaksa masuk...');
-      }
+      const page = await browser.newPage();
 
-      // 3. Menembus Cloudflare dengan Loop Pengecekan
-      logger.info('Menunggu Satpam Cloudflare membukakan jalan...');
-      let isClerkReady = false;
-      
-      // Bot akan mengecek setiap 2 detik, maksimal 20 kali percobaan (40 detik total)
-      for (let i = 0; i < 20; i++) {
-        await new Promise(resolve => setTimeout(resolve, 2000));
-        isClerkReady = await page.evaluate(() => {
-            return !!(window.Clerk && window.Clerk.isReady);
-        });
-        
-        if (isClerkReady) {
-            logger.info('Berhasil melewati Cloudflare! Pintu login terbuka.');
-            break;
-        }
-      }
+      // Atur viewport standar manusia
+      await page.setViewport({ width: 1280, height: 720 });
 
-      // Jika setelah ditunggu lama tetap tidak buka, berarti terjebak Captcha parah
-      if (!isClerkReady) {
-          // Ambil screenshot halaman (opsional jika ingin melihat kenapa macet)
-          throw new Error('Gagal menembus Cloudflare. Layar tertahan di pengecekan Captcha.');
-      }
+      // 2. Buka Halaman Suno
+      logger.info('Membuka Suno.com melalui Jaringan Residential Bright Data...');
+      await page.goto('https://suno.com', { waitUntil: 'domcontentloaded', timeout: 90000 });
 
-      // 4. Eksekusi Login karena Pintu Sudah Terbuka
-      logger.info('Memasukkan kredensial ke sistem Suno...');
+      // 3. Tunggu Sistem Keamanan Suno (Clerk) Terbuka Otomatis oleh Bright Data
+      logger.info('Menunggu inisialisasi Clerk Auth (Cloudflare Turnstile ditembus otomatis)...');
+      await page.waitForFunction(() => window.Clerk && window.Clerk.isReady, { timeout: 60000 });
+
+      // 4. Eksekusi Login / Daftar
+      logger.info('Memasukkan email ke Suno...');
       const authResult = await page.evaluate(async (email) => {
         try {
           const signInRes = await window.Clerk.client.signIn.create({ identifier: email });
@@ -95,7 +68,7 @@ class SessionManager {
               await window.Clerk.client.signUp.prepareVerification({ strategy: 'email_code' });
               return { mode: 'signup', success: true };
             } catch (signupErr) {
-               return { success: false, error: JSON.stringify(signupErr.errors || signupErr.message) };
+              return { success: false, error: JSON.stringify(signupErr.errors || signupErr.message) };
             }
           }
           return { success: false, error: JSON.stringify(err.errors || err.message) };
@@ -103,24 +76,26 @@ class SessionManager {
       }, account.email);
 
       if (!authResult.success) {
-        if (authResult.error.includes('phone')) {
-             throw new Error("DITOLAK: Sistem meminta verifikasi Nomor HP. IP Anda dicurigai.");
-        }
-        throw new Error(`Sistem Menolak: ${authResult.error}`);
+        throw new Error(`Gagal memproses email: ${authResult.error}`);
       }
 
-      // 5. Minta OTP di Dashboard
-      logger.info(`[SUCCESS] Kode OTP dikirim ke ${account.email}. Cek Email Anda!`);
+      // 5. Trigger Pop-up OTP di Dashboard Anda
+      logger.info(`[BERHASIL] Kode OTP terkirim ke ${account.email}! Membuka pop-up di dashboard...`);
       this.accountManager.updateAccount(accountId, { statusCookie: 'need_otp' });
       global.io.emit('account:status', { id: accountId, statusCookie: 'need_otp' });
-      global.io.emit('otp:required', { accountId, email: account.email, timestamp: new Date().toISOString() });
+      global.io.emit('otp:required', {
+        accountId,
+        email: account.email,
+        timestamp: new Date().toISOString()
+      });
 
+      // Tunggu Anda masukkan OTP 6-Digit di Dashboard (Waktu tunggu 5 Menit)
       const otpCode = await this.waitForOTP(accountId, 300000);
-      if (!otpCode) throw new Error('Timeout: OTP tidak dimasukkan dalam 5 menit.');
+      if (!otpCode) throw new Error('Timeout: OTP tidak dimasukkan dalam 5 menit');
 
-      logger.info(`Memverifikasi OTP (${otpCode})...`);
+      logger.info(`Memverifikasi kode OTP (${otpCode}) ke Suno...`);
 
-      // 6. Verifikasi OTP
+      // 6. Verifikasi Kode OTP
       const verifyResult = await page.evaluate(async (code, mode) => {
         try {
           let completeRes;
@@ -135,24 +110,24 @@ class SessionManager {
             const token = await window.Clerk.session.getToken();
             return { success: true, token };
           }
-          return { success: false, error: 'Status tidak valid: ' + completeRes.status };
+          return { success: false, error: 'Status OTP tidak valid: ' + completeRes.status };
         } catch (err) {
           return { success: false, error: JSON.stringify(err.errors || err.message) };
         }
       }, otpCode, authResult.mode);
 
       if (!verifyResult.success) {
-        throw new Error(`OTP Salah / Gagal: ${verifyResult.error}`);
+        throw new Error(`Verifikasi OTP Gagal: ${verifyResult.error}`);
       }
 
-      // 7. Ambil Cookies & Token
+      // 7. Ambil Bearer Token & Cookies
       const bearerToken = verifyResult.token;
       const cookies = await page.cookies();
       const cookiesString = cookies.map(c => `${c.name}=${c.value}`).join('; ');
 
-      if (!bearerToken) throw new Error('Berhasil tapi gagal mendapat token.');
+      if (!bearerToken) throw new Error('Gagal mendapatkan Bearer Token login');
 
-      // 8. Selesai
+      // 8. Simpan Sesi Permanen
       this.saveSession(accountId, { bearerToken, cookies: cookiesString });
 
       this.accountManager.updateAccount(accountId, {
@@ -162,27 +137,24 @@ class SessionManager {
       });
 
       global.io.emit('account:status', { id: accountId, statusCookie: 'active' });
-      global.io.emit('notification', { type: 'success', message: `Verifikasi Berhasil! Akun AKTIF!` });
+      global.io.emit('notification', { type: 'success', message: `Verifikasi Berhasil! Akun ${account.email} AKTIF!` });
 
+      logger.info(`[SELESAI] Akun ${accountId} berhasil LOGIN dan siap dipakai!`);
       return { success: true };
 
     } catch (err) {
-      let errorMsg = err.message;
-      
-      if (errorMsg.includes('Target closed') || errorMsg.includes('Session closed')) {
-          errorMsg = "Server Railway Kehabisan RAM / Browser Crash karena terlalu berat.";
-      }
+      const fullErrorLog = err.message;
+      logger.error(`Login Error: ${fullErrorLog}`);
 
-      logger.error(`Login Error: ${errorMsg}`);
       this.accountManager.updateAccount(accountId, { statusCookie: 'expired' });
       global.io.emit('account:status', { id: accountId, statusCookie: 'expired' });
-      global.io.emit('notification', { type: 'error', message: `GAGAL: ${errorMsg}` });
+      global.io.emit('notification', { type: 'error', message: `GAGAL: ${fullErrorLog}` });
 
-      return { success: false, error: errorMsg };
+      return { success: false, error: fullErrorLog };
     } finally {
-      // Wajib tutup browser agar RAM kembali kosong
+      // Tutup browser remote Bright Data agar hemat kuota
       try {
-        if (browserInstance) await this.browserManager.close(accountId);
+        if (browser) await browser.close();
       } catch (e) {}
       this.loginLocks.delete(accountId);
     }
