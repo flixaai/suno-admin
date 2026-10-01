@@ -220,14 +220,28 @@ class SessionManager {
       return { success: true };
 
     } catch (err) {
-      const errMsg = err.response?.data?.errors?.[0]?.long_message || err.response?.data?.errors?.[0]?.message || err.message;
-      logger.error(`Login Error for ${accountId}: ${errMsg}`);
+      // Menganalisis error asli (Cloudflare, Timeout, atau Axios Error)
+      let errMsg = err.message;
+      let rawDetail = "";
+
+      if (err.response) {
+        if (typeof err.response.data === 'string' && err.response.data.toLowerCase().includes('cloudflare')) {
+          errMsg = `Akses Ditolak Cloudflare (Status ${err.response.status}).`;
+        } else if (err.response.data?.errors) {
+          errMsg = err.response.data.errors[0]?.long_message || err.response.data.errors[0]?.message || errMsg;
+        }
+        // Ambil maksimal 150 karakter data asli agar popup tidak terlalu penuh
+        rawDetail = typeof err.response.data === 'string' ? err.response.data.substring(0, 150) : JSON.stringify(err.response.data);
+      }
+
+      const fullErrorLog = `GAGAL: ${errMsg} | DATA ASLI: ${rawDetail}`;
+      logger.error(`Login Error for ${accountId}: ${fullErrorLog}`);
 
       this.accountManager.updateAccount(accountId, { statusCookie: 'expired' });
       global.io.emit('account:status', { id: accountId, statusCookie: 'expired' });
-      global.io.emit('notification', { type: 'error', message: `Login Gagal: ${errMsg}` });
+      global.io.emit('notification', { type: 'error', message: fullErrorLog });
 
-      return { success: false, error: errMsg };
+      return { success: false, error: fullErrorLog };
     } finally {
       this.loginLocks.delete(accountId);
     }
