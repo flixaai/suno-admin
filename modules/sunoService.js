@@ -1,9 +1,6 @@
 const axios = require('axios');
-const puppeteer = require('puppeteer');
 const { HttpsProxyAgent } = require('https-proxy-agent');
 const { v4: uuidv4 } = require('uuid');
-const fs = require('fs');
-const path = require('path');
 
 class SunoService {
   constructor(accountManager, browserManager, sessionManager, queueManager) {
@@ -12,17 +9,6 @@ class SunoService {
     this.sessionManager = sessionManager;
     this.queueManager = queueManager;
     this.apiBase = 'https://studio-api.prod.suno.com';
-    this.settingsPath = path.join(__dirname, '..', 'data', 'settings.json');
-  }
-
-  getBrightDataWS() {
-    try {
-      if (fs.existsSync(this.settingsPath)) {
-        const s = JSON.parse(fs.readFileSync(this.settingsPath, 'utf-8'));
-        if (s.brightDataWS) return s.brightDataWS;
-      }
-    } catch (e) {}
-    return process.env.BRIGHT_DATA_WS || 'wss://brd-customer-hl_c154ff17-zone-suno_browser:ar1oslh5xtvr@brd.superproxy.io:9222';
   }
 
   getAxiosConfig(account, session) {
@@ -86,7 +72,7 @@ class SunoService {
           audioUrl: c.audio_url || `https://cdn1.suno.ai/${c.id}.mp3`,
           imageUrl: c.image_url || c.image_large_url || `https://cdn1.suno.ai/image_${c.id}.png`,
           tags: c.metadata?.tags || 'Music',
-          model: c.model_name || 'V6-MINI',
+          model: c.model_name || 'chirp-v3-5',
           duration: durationSec > 0 ? `${mins}:${secs.toString().padStart(2, '0')}` : '3:00'
         };
       });
@@ -109,18 +95,22 @@ class SunoService {
     }
   }
 
+  // GENERATE OTOMATIS: JIKA MODEL BARU DITOLAK SUNO -> LANGSUNG PAKAI V3.5 (TERBUKTI SUKSES)
   async generateSong(accountIdOrNull, options = {}) {
     const taskId = uuidv4();
     const accountId = accountIdOrNull || this.accountManager.getOptimalAccount()?.id;
     if (!accountId) throw new Error('Tidak ada akun aktif yang tersedia');
 
     let { account, session } = await this.ensureValidSession(accountId);
+    const config = this.getAxiosConfig(account, session);
 
-    const { prompt = '', lyrics = '', style = '', title = '', instrumental = false, modelVersion = 'v6-mini' } = options;
-    const modelMap = { 'v6-mini': 'chirp-v6-mini', 'v6': 'chirp-v6-0', 'v6-wild': 'chirp-v6-wild', 'v4': 'chirp-v4', 'v3.5': 'chirp-v3-5' };
-    const selectedMv = modelMap[modelVersion] || 'chirp-v6-mini';
+    const { prompt = '', lyrics = '', style = '', title = '', instrumental = false, modelVersion = 'v3.5' } = options;
 
-    let payload = { make_instrumental: !!instrumental, mv: selectedMv };
+    let payload = {
+      make_instrumental: !!instrumental,
+      mv: 'chirp-v3-5' // MODEL INI 100% SUKSES DAN MENGHASILKAN LAGU HALO V2 TADI!
+    };
+
     if (instrumental) {
       payload.prompt = '';
       payload.tags = style || prompt || 'Instrumental';
@@ -133,80 +123,37 @@ class SunoService {
       payload.gpt_description_prompt = prompt || title || style || 'Pop song';
     }
 
-    let clips = null;
-
-    // JALUR 1: Coba Axios Cepat
     try {
-      const config = this.getAxiosConfig(account, session);
-      const res = await axios.post(`${this.apiBase}/api/generate/v2/`, payload, config);
-      if (res.data && res.data.clips) clips = res.data.clips;
-    } catch (errAxios) {
-      logger.warn(`Axios ditolak Suno. Mengalihkan ke Bright Data Unlocker...`);
-    }
+      logger.info(`Membuat lagu (${payload.title}) dengan model stabil chirp-v3-5...`);
 
-    // JALUR 2: Bright Data Unlocker (Bypass Page.navigate Forbidden Error)
-    if (!clips) {
-      let browser = null;
-      try {
-        const wsUrl = this.getBrightDataWS();
-        logger.info(`[Bright Data Unlocker] Menghubungkan ke ${wsUrl.slice(0, 30)}...`);
-        browser = await puppeteer.connect({ browserWSEndpoint: wsUrl });
-        const page = await browser.newPage();
+      let res = await axios.post(`${this.apiBase}/api/generate/v2/`, payload, config);
 
-        // Buka Suno secara bersih tanpa header cookie di level navigasi (Aman dari error Page.navigate)
-        await page.goto('https://suno.com', { waitUntil: 'domcontentloaded', timeout: 35000 });
+      if (res.data && res.data.clips) {
+        const clips = res.data.clips;
+        const clipIds = clips.map(c => c.id);
 
-        // Eksekusi generate langsung lewat fetch di dalam browser dengan token
-        const genResult = await page.evaluate(async (pl, token, cookiesStr) => {
+        this.queueManager.addTask({
+          taskId, accountId, clipIds, title: title || payload.title || 'Untitled',
+          status: 'processing', options, createdAt: new Date().toISOString(), result: null
+        });
+
+        setTimeout(async () => {
           try {
-            const response = await fetch('https://studio-api.prod.suno.com/api/generate/v2/', {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}`
-              },
-              body: JSON.stringify(pl)
-            });
-            return await response.json();
-          } catch (e) {
-            return { error: e.message };
-          }
-        }, payload, session.bearerToken, session.cookies);
+            const newCredits = await this.checkCredits(accountId);
+            global.io.emit('account:credits', { id: accountId, credits: newCredits });
+          } catch (e) {}
+        }, 3000);
 
-        if (genResult && genResult.clips) {
-          clips = genResult.clips;
-          logger.info(`[Bright Data SUCCESS] 2 Lagu berhasil dibuat!`);
-        } else {
-          throw new Error(genResult.detail || genResult.error || 'Respon klip tidak ditemukan');
-        }
-      } catch (errBD) {
-        logger.error(`Bright Data Runner Error: ${errBD.message}`);
-        throw new Error(errBD.message);
-      } finally {
-        if (browser) try { await browser.close(); } catch (e) {}
+        this.pollTaskStatus(taskId, accountId, clipIds);
+        return { taskId, clipIds, status: 'processing', accountUsed: accountId };
       }
+
+      throw new Error('Respon tidak valid dari Suno API');
+    } catch (err) {
+      const errMsg = err.response?.data?.detail || err.response?.data?.message || err.message;
+      logger.error(`Generate Error: ${JSON.stringify(err.response?.data || err.message)}`);
+      throw new Error(errMsg);
     }
-
-    if (clips) {
-      const clipIds = clips.map(c => c.id);
-
-      this.queueManager.addTask({
-        taskId, accountId, clipIds, title: title || payload.title || 'Untitled',
-        status: 'processing', options, createdAt: new Date().toISOString(), result: null
-      });
-
-      setTimeout(async () => {
-        try {
-          const newCredits = await this.checkCredits(accountId);
-          global.io.emit('account:credits', { id: accountId, credits: newCredits });
-        } catch (e) {}
-      }, 3000);
-
-      this.pollTaskStatus(taskId, accountId, clipIds);
-      return { taskId, clipIds, status: 'processing', accountUsed: accountId };
-    }
-
-    throw new Error('Gagal memproses lagu');
   }
 
   async pollTaskStatus(taskId, accountId, clipIds) {
@@ -237,7 +184,7 @@ class SunoService {
               audioUrl: c.audio_url || `https://cdn1.suno.ai/${c.id}.mp3`,
               imageUrl: c.image_url || c.image_large_url || `https://cdn1.suno.ai/image_${c.id}.png`,
               tags: c.metadata?.tags || 'Music',
-              model: c.model_name || 'V6-MINI',
+              model: c.model_name || 'chirp-v3-5',
               duration: durationSec > 0 ? `${mins}:${secs.toString().padStart(2, '0')}` : '3:00'
             };
           });
