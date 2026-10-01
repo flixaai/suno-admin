@@ -1,6 +1,9 @@
 const axios = require('axios');
+const puppeteer = require('puppeteer');
 const { HttpsProxyAgent } = require('https-proxy-agent');
 const { v4: uuidv4 } = require('uuid');
+const fs = require('fs');
+const path = require('path');
 
 class SunoService {
   constructor(accountManager, browserManager, sessionManager, queueManager) {
@@ -9,6 +12,17 @@ class SunoService {
     this.sessionManager = sessionManager;
     this.queueManager = queueManager;
     this.apiBase = 'https://studio-api.prod.suno.com';
+    this.settingsPath = path.join(__dirname, '..', 'data', 'settings.json');
+  }
+
+  getBrightDataWS() {
+    try {
+      if (fs.existsSync(this.settingsPath)) {
+        const s = JSON.parse(fs.readFileSync(this.settingsPath, 'utf-8'));
+        if (s.brightDataWS) return s.brightDataWS;
+      }
+    } catch (e) {}
+    return process.env.BRIGHT_DATA_WS || 'wss://brd-customer-hl_c154ff17-zone-suno_browser:ar1oslh5xtvr@brd.superproxy.io:9222';
   }
 
   getAxiosConfig(account, session) {
@@ -39,7 +53,6 @@ class SunoService {
     return config;
   }
 
-  // LANGSUNG AMBIL SESI TANPA PENCEGATAN PALSU
   async ensureValidSession(accountId) {
     const account = this.accountManager.getAccountRaw(accountId);
     if (!account) throw new Error(`Akun tidak ditemukan: ${accountId}`);
@@ -96,13 +109,13 @@ class SunoService {
     }
   }
 
+  // PEMBUATAN LAGU SUPER-ROBUST (AXIOS + BRIGHT DATA AUTO-UNLOCK)
   async generateSong(accountIdOrNull, options = {}) {
     const taskId = uuidv4();
     const accountId = accountIdOrNull || this.accountManager.getOptimalAccount()?.id;
     if (!accountId) throw new Error('Tidak ada akun aktif yang tersedia');
 
     let { account, session } = await this.ensureValidSession(accountId);
-    let config = this.getAxiosConfig(account, session);
 
     const { prompt = '', lyrics = '', style = '', title = '', instrumental = false, modelVersion = 'v6-mini' } = options;
     const modelMap = { 'v6-mini': 'chirp-v6-mini', 'v6': 'chirp-v6-0', 'v6-wild': 'chirp-v6-wild', 'v4': 'chirp-v4', 'v3.5': 'chirp-v3-5' };
@@ -121,42 +134,90 @@ class SunoService {
       payload.gpt_description_prompt = prompt || title || style || 'Pop song';
     }
 
+    let clips = null;
+
+    // JALUR 1: Coba Axios Cepat Dulu
     try {
-      logger.info(`Mengirim permintaan generate (${selectedMv}) ke Suno...`);
-      let res;
-      try {
-        res = await axios.post(`${this.apiBase}/api/generate/v2/`, payload, config);
-      } catch (errPost) {
-        // Jika model v6-mini format internal ditolak, coba v3.5
-        payload.mv = 'chirp-v3-5';
-        res = await axios.post(`${this.apiBase}/api/generate/v2/`, payload, config);
-      }
-
-      if (res.data && res.data.clips) {
-        const clips = res.data.clips;
-        const clipIds = clips.map(c => c.id);
-
-        this.queueManager.addTask({
-          taskId, accountId, clipIds, title: title || payload.title || 'Untitled',
-          status: 'processing', options, createdAt: new Date().toISOString(), result: null
-        });
-
-        setTimeout(async () => {
-          try {
-            const newCredits = await this.checkCredits(accountId);
-            global.io.emit('account:credits', { id: accountId, credits: newCredits });
-          } catch (e) {}
-        }, 3000);
-
-        this.pollTaskStatus(taskId, accountId, clipIds);
-        return { taskId, clipIds, status: 'processing', accountUsed: accountId };
-      }
-      throw new Error('Respon tidak valid dari Suno API');
-    } catch (err) {
-      const errMsg = err.response?.data?.detail || err.response?.data?.message || err.message;
-      logger.error(`Generate Error: ${JSON.stringify(err.response?.data || err.message)}`);
-      throw new Error(errMsg);
+      logger.info(`Mencoba generate via Axios cepat (${selectedMv})...`);
+      const config = this.getAxiosConfig(account, session);
+      const res = await axios.post(`${this.apiBase}/api/generate/v2/`, payload, config);
+      if (res.data && res.data.clips) clips = res.data.clips;
+    } catch (errAxios) {
+      const errDetail = JSON.stringify(errAxios.response?.data || errAxios.message);
+      logger.warn(`Axios gagal karena keamanan Suno: ${errDetail}. Mengalihkan ke Superkomputer Bright Data...`);
     }
+
+    // JALUR 2: Jika Dicegat Suno ("verify your request" / Cloudflare), Gunakan Browser Bright Data!
+    if (!clips) {
+      let browser = null;
+      try {
+        const wsUrl = this.getBrightDataWS();
+        logger.info(`[Bright Data Unlocker] Membuka remote browser via ${wsUrl.slice(0, 30)}...`);
+        browser = await puppeteer.connect({ browserWSEndpoint: wsUrl });
+        const page = await browser.newPage();
+
+        const cookieObjects = session.cookies.split('; ').map(c => {
+          const [name, ...val] = c.split('=');
+          return { name: name.trim(), value: val.join('=').trim(), domain: '.suno.com', path: '/' };
+        });
+        await page.setCookie(...cookieObjects);
+
+        // Buka Suno Create di browser asli agar Cloudflare Turnstile lolos otomatis
+        await page.goto('https://suno.com/create', { waitUntil: 'domcontentloaded', timeout: 35000 });
+        await page.waitForFunction(() => window.Clerk && window.Clerk.isReady, { timeout: 25000 });
+
+        // Eksekusi generate dari dalam konteks browser yang sudah sah
+        const genResult = await page.evaluate(async (pl) => {
+          try {
+            const token = await window.Clerk.session.getToken();
+            const response = await fetch('https://studio-api.prod.suno.com/api/generate/v2/', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+              },
+              body: JSON.stringify(pl)
+            });
+            return await response.json();
+          } catch (e) {
+            return { error: e.message };
+          }
+        }, payload);
+
+        if (genResult && genResult.clips) {
+          clips = genResult.clips;
+          logger.info(`[Bright Data SUCCESS] Lagu berhasil di-generate melewati Captcha Turnstile!`);
+        } else {
+          throw new Error(genResult.detail || genResult.error || 'Gagal generate via remote browser');
+        }
+      } catch (errBD) {
+        logger.error(`Bright Data Runner Error: ${errBD.message}`);
+        throw new Error(errBD.message);
+      } finally {
+        if (browser) try { await browser.close(); } catch (e) {}
+      }
+    }
+
+    if (clips) {
+      const clipIds = clips.map(c => c.id);
+
+      this.queueManager.addTask({
+        taskId, accountId, clipIds, title: title || payload.title || 'Untitled',
+        status: 'processing', options, createdAt: new Date().toISOString(), result: null
+      });
+
+      setTimeout(async () => {
+        try {
+          const newCredits = await this.checkCredits(accountId);
+          global.io.emit('account:credits', { id: accountId, credits: newCredits });
+        } catch (e) {}
+      }, 3000);
+
+      this.pollTaskStatus(taskId, accountId, clipIds);
+      return { taskId, clipIds, status: 'processing', accountUsed: accountId };
+    }
+
+    throw new Error('Gagal mendapatkan respon klip dari Suno');
   }
 
   async pollTaskStatus(taskId, accountId, clipIds) {
