@@ -156,39 +156,47 @@ app.get('/api/v1/audio/:audioId', async (req, res) => {
   const { audioId } = req.params;
   const { download, title } = req.query;
 
-  // Jalur Resmi CDN & Audiopipe Suno (Tanpa .mp3 untuk audiopipe)
-  const mirrors = [
-    `https://cdn1.suno.ai/${audioId}.mp3`,
-    `https://audiopipe.suno.ai/track/${audioId}`,
-    `https://audiopipe.suno.ai/track/${audioId}.mp3`,
-    `https://cdn2.suno.ai/${audioId}.mp3`
-  ];
+  try {
+    const accounts = getAccounts();
+    const session = accounts.length ? loadSession(accounts[0].id) : null;
+    let streamUrl = `https://cdn1.suno.ai/${audioId}.mp3`;
+    let cookieHeader = session ? session.cookies : '';
 
-  for (const url of mirrors) {
-    try {
-      const response = await axios({
-        method: 'GET',
-        url: url,
-        responseType: 'stream',
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-        },
-        timeout: 20000
-      });
+    if (session) {
+      try {
+        const config = getAxiosConfig(session);
+        const feedRes = await axios.get(`${SUNO_API_BASE}/api/feed/?ids=${audioId}`, config);
+        if (feedRes.data && feedRes.data[0] && feedRes.data[0].audio_url) {
+          streamUrl = feedRes.data[0].audio_url;
+        }
+      } catch (e) {}
+    }
 
-      if (download === 'true') {
-        const safeTitle = (title || 'suno_music').replace(/[^a-zA-Z0-9_\-\s]/g, '').trim();
-        res.setHeader('Content-Disposition', `attachment; filename="${safeTitle || 'song'}.mp3"`);
-      } else {
-        res.setHeader('Content-Disposition', 'inline');
-      }
+    const audioRes = await axios({
+      method: 'GET',
+      url: streamUrl,
+      responseType: 'stream',
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Referer': 'https://suno.com/',
+        'Cookie': cookieHeader
+      },
+      timeout: 45000
+    });
 
-      res.setHeader('Content-Type', 'audio/mpeg');
-      return response.data.pipe(res);
-    } catch (e) {}
+    if (download === 'true') {
+      const safeTitle = (title || 'suno_music').replace(/[^a-zA-Z0-9_\-\s]/g, '').trim();
+      res.setHeader('Content-Disposition', `attachment; filename="${safeTitle || 'song'}.mp3"`);
+    } else {
+      res.setHeader('Content-Disposition', 'inline');
+    }
+
+    res.setHeader('Content-Type', 'audio/mpeg');
+    res.setHeader('Accept-Ranges', 'bytes');
+    return audioRes.data.pipe(res);
+  } catch (err) {
+    res.status(404).send('Audio tidak ditemukan atau sedang diproses');
   }
-
-  return res.redirect(`https://cdn1.suno.ai/${audioId}.mp3`);
 });
 
 // Admin Route
