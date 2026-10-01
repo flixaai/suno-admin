@@ -1,0 +1,13 @@
+node_modules
+npm-debug.log
+.env
+.git
+.gitignore
+*.md
+sessions/*.json
+!sessions/.gitkeep
+data/accounts.json
+data/queue.json
+error.log
+combined.log
+.DS_Store
