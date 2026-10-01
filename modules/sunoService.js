@@ -1,8 +1,5 @@
 const axios = require('axios');
 const { HttpsProxyAgent } = require('https-proxy-agent');
-const FormData = require('form-data');
-const fs = require('fs');
-const path = require('path');
 const { v4: uuidv4 } = require('uuid');
 
 class SunoService {
@@ -11,9 +8,7 @@ class SunoService {
     this.browserManager = browserManager;
     this.sessionManager = sessionManager;
     this.queueManager = queueManager;
-    // Jalur Resmi Terbaru Suno AI (Production)
     this.apiBase = 'https://studio-api.prod.suno.com';
-    this.fallbackApiBase = 'https://studio-api.suno.ai';
   }
 
   getAxiosConfig(account, session) {
@@ -33,14 +28,13 @@ class SunoService {
       'sec-fetch-site': 'same-site'
     };
 
-    // WAJIB: Masukkan Cookie lengkap agar tidak kena 503 dari Cloudflare
     if (session.cookies) {
       headers['Cookie'] = session.cookies;
     }
 
     const config = {
       headers,
-      timeout: 45000
+      timeout: 60000
     };
 
     if (account && account.proxy) {
@@ -58,7 +52,7 @@ class SunoService {
 
     const session = this.sessionManager.loadSession(accountId);
     if (!session || !session.bearerToken) {
-      throw new Error(`Tidak ada sesi aktif untuk ${accountId}. Silakan import cookie ulang.`);
+      throw new Error(`Tidak ada sesi aktif untuk ${accountId}.`);
     }
 
     return { account, session };
@@ -69,15 +63,7 @@ class SunoService {
     const config = this.getAxiosConfig(account, session);
 
     try {
-      // Coba jalur utama prod
-      let res;
-      try {
-        res = await axios.get(`${this.apiBase}/api/billing/info/`, config);
-      } catch (e) {
-        // Fallback jalur alternatif
-        res = await axios.get(`${this.fallbackApiBase}/api/billing/info/`, config);
-      }
-
+      const res = await axios.get(`${this.apiBase}/api/billing/info/`, config);
       const credits = res.data?.total_credits_left !== undefined 
         ? res.data.total_credits_left 
         : (res.data?.credits_left || 0);
@@ -90,7 +76,7 @@ class SunoService {
       return credits;
     } catch (err) {
       const errMsg = err.response?.data?.detail || err.response?.data?.message || err.message;
-      logger.error(`Credit check error untuk ${accountId}: ${errMsg}`);
+      logger.error(`Credit check error: ${errMsg}`);
       throw new Error(errMsg);
     }
   }
@@ -100,7 +86,7 @@ class SunoService {
     const accountId = accountIdOrNull || this.accountManager.getOptimalAccount()?.id;
 
     if (!accountId) {
-      throw new Error('Tidak ada akun aktif yang tersedia dengan sesi valid');
+      throw new Error('Tidak ada akun aktif yang tersedia dengan saldo kredit.');
     }
 
     const { account, session } = await this.ensureValidSession(accountId);
@@ -111,53 +97,33 @@ class SunoService {
       lyrics = '',
       style = '',
       title = '',
-      isCustom = false,
-      instrumental = false,
-      modelVersion = 'chirp-v4'
+      instrumental = false
     } = options;
 
-    let payload = {};
+    // PAYLOAD RESMI SUNO UNTUK AKUN KREDIT (MODEL v3.5 STABIL)
+    let payload = {
+      make_instrumental: !!instrumental,
+      mv: 'chirp-v3-5'
+    };
 
     if (instrumental) {
-      // Mode Instrumental Tanpa Vokal
-      payload = {
-        prompt: '',
-        tags: style || prompt || 'Instrumental',
-        title: title || 'Untitled Instrumental',
-        make_instrumental: true,
-        mv: 'chirp-v4',
-        generation_type: 'TEXT'
-      };
-    } else if (isCustom || lyrics) {
-      // Mode Custom dengan Lirik
-      payload = {
-        prompt: lyrics || prompt,
-        tags: style || '',
-        title: title || 'Untitled Song',
-        make_instrumental: false,
-        mv: 'chirp-v4',
-        generation_type: 'TEXT'
-      };
+      payload.prompt = '';
+      payload.tags = style || prompt || 'Instrumental';
+      payload.title = title || 'Untitled Instrumental';
+    } else if (lyrics || style || title) {
+      payload.prompt = lyrics || prompt;
+      payload.tags = style || '';
+      payload.title = title || 'Untitled Song';
     } else {
-      // Mode Simple Prompt
-      payload = {
-        gpt_description_prompt: prompt || title || style,
-        make_instrumental: false,
-        mv: 'chirp-v4',
-        generation_type: 'TEXT'
-      };
+      payload.gpt_description_prompt = prompt || title || style || 'Pop song';
     }
 
     try {
       logger.info(`Membuat lagu dengan akun ${accountId}, task ${taskId}`);
+      logger.info(`Payload: ${JSON.stringify(payload)}`);
 
-      let res;
-      try {
-        res = await axios.post(`${this.apiBase}/api/generate/v2/`, payload, config);
-      } catch (errProd) {
-        logger.warn('Jalur utama gagal, mencoba jalur fallback...');
-        res = await axios.post(`${this.fallbackApiBase}/api/generate/v2/`, payload, config);
-      }
+      // Kirim langsung ke jalur resmi Suno Production
+      const res = await axios.post(`${this.apiBase}/api/generate/v2/`, payload, config);
 
       if (res.data && res.data.clips) {
         const clips = res.data.clips;
@@ -174,12 +140,14 @@ class SunoService {
         });
 
         // Update sisa kredit
-        try {
-          const newCredits = await this.checkCredits(accountId);
-          global.io.emit('account:credits', { id: accountId, credits: newCredits });
-        } catch (e) {}
+        setTimeout(async () => {
+          try {
+            const newCredits = await this.checkCredits(accountId);
+            global.io.emit('account:credits', { id: accountId, credits: newCredits });
+          } catch (e) {}
+        }, 3000);
 
-        // Mulai polling audio hasil
+        // Polling hasil audio
         this.pollTaskStatus(taskId, accountId, clipIds);
 
         return {
@@ -193,7 +161,7 @@ class SunoService {
       throw new Error('Respon tidak valid dari Suno API');
     } catch (err) {
       const errMsg = err.response?.data?.detail || err.response?.data?.message || err.message;
-      logger.error(`Generate song error untuk ${accountId}: ${errMsg}`);
+      logger.error(`Generate song error: ${JSON.stringify(err.response?.data || err.message)}`);
       throw new Error(errMsg);
     }
   }
@@ -208,12 +176,7 @@ class SunoService {
 
     try {
       const ids = clipIds.join(',');
-      let res;
-      try {
-        res = await axios.get(`${this.apiBase}/api/feed/?ids=${ids}`, config);
-      } catch (e) {
-        res = await axios.get(`${this.fallbackApiBase}/api/feed/?ids=${ids}`, config);
-      }
+      const res = await axios.get(`${this.apiBase}/api/feed/?ids=${ids}`, config);
       return res.data || [];
     } catch (err) {
       logger.error(`Clip status error: ${err.message}`);
