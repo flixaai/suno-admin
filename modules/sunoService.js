@@ -141,44 +141,29 @@ class SunoService {
       const res = await axios.post(`${this.apiBase}/api/generate/v2/`, payload, config);
       if (res.data && res.data.clips) clips = res.data.clips;
     } catch (errAxios) {
-      logger.warn(`Axios dicegat Suno. Mengalihkan ke Bright Data Unlocker...`);
+      logger.warn(`Axios ditolak Suno. Mengalihkan ke Bright Data Unlocker...`);
     }
 
-    // JALUR 2: Bright Data Unlocker (BEBAS ERROR FORBIDDEN COOKIE)
+    // JALUR 2: Bright Data Unlocker (Bypass Page.navigate Forbidden Error)
     if (!clips) {
       let browser = null;
       try {
         const wsUrl = this.getBrightDataWS();
-        logger.info(`[Bright Data Unlocker] Membuka browser remote via ${wsUrl.slice(0, 30)}...`);
+        logger.info(`[Bright Data Unlocker] Menghubungkan ke ${wsUrl.slice(0, 30)}...`);
         browser = await puppeteer.connect({ browserWSEndpoint: wsUrl });
         const page = await browser.newPage();
 
-        // SOLUSI TOTAL: Gunakan setExtraHTTPHeaders (Bukan setCookie yang dilarang Bright Data!)
-        await page.setExtraHTTPHeaders({
-          'Cookie': session.cookies
-        });
+        // Buka Suno secara bersih tanpa header cookie di level navigasi (Aman dari error Page.navigate)
+        await page.goto('https://suno.com', { waitUntil: 'domcontentloaded', timeout: 35000 });
 
-        await page.goto('https://suno.com/create', { waitUntil: 'domcontentloaded', timeout: 35000 });
-
-        // Set di level DOM murni (Aman tanpa CDP error)
-        await page.evaluate((cookieStr) => {
+        // Eksekusi generate langsung lewat fetch di dalam browser dengan token
+        const genResult = await page.evaluate(async (pl, token, cookiesStr) => {
           try {
-            cookieStr.split('; ').forEach(c => {
-              document.cookie = c + '; path=/; domain=.suno.com';
-            });
-          } catch(e) {}
-        }, session.cookies);
-
-        await page.waitForFunction(() => window.Clerk && window.Clerk.isReady, { timeout: 25000 });
-
-        const genResult = await page.evaluate(async (pl, token) => {
-          try {
-            const authToken = (window.Clerk && window.Clerk.session) ? await window.Clerk.session.getToken() : token;
             const response = await fetch('https://studio-api.prod.suno.com/api/generate/v2/', {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${authToken}`
+                'Authorization': `Bearer ${token}`
               },
               body: JSON.stringify(pl)
             });
@@ -186,13 +171,13 @@ class SunoService {
           } catch (e) {
             return { error: e.message };
           }
-        }, payload, session.bearerToken);
+        }, payload, session.bearerToken, session.cookies);
 
         if (genResult && genResult.clips) {
           clips = genResult.clips;
-          logger.info(`[Bright Data SUCCESS] Lagu berhasil dibuat di Suno!`);
+          logger.info(`[Bright Data SUCCESS] 2 Lagu berhasil dibuat!`);
         } else {
-          throw new Error(genResult.detail || genResult.error || 'Gagal memproses klip di Suno');
+          throw new Error(genResult.detail || genResult.error || 'Respon klip tidak ditemukan');
         }
       } catch (errBD) {
         logger.error(`Bright Data Runner Error: ${errBD.message}`);
