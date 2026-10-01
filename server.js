@@ -195,7 +195,7 @@ app.get('/api/v1/audio/:audioId', async (req, res) => {
   try {
     const accounts = getAccounts();
     const session = accounts.length ? loadSession(accounts[0].id) : null;
-    let streamUrl = `https://audiopipe.suno.ai/track/${audioId}.mp3`;
+    let streamUrl = `https://cdn1.suno.ai/${audioId}.mp3`;
 
     if (session) {
       try {
@@ -219,8 +219,7 @@ app.get('/api/v1/audio/:audioId', async (req, res) => {
         url: streamUrl,
         responseType: 'stream',
         headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-          'Referer': 'https://suno.com/'
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
         },
         timeout: 45000
       });
