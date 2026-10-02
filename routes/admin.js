@@ -553,26 +553,24 @@ function getDashboardHTML() {
       }).join('');
     }
 
-    var currentActiveDirectUrl = '';
-
-    // Pemutar Audio Langsung & Download (Sistem MasterAudio.Pro)
+    // Pemutar Audio & Download Nyata (Buffer Proxy + Konversi MP3)
     function openMiniPlayer(audioId, title, tags, cover, audioUrl) {
       currentActiveAudioId = audioId;
       currentActiveTitle = title || 'song';
-      currentActiveDirectUrl = audioUrl || ('https://d2lwuy8qc234o3.cloudfront.net/1/clip/' + audioId + '.m4a');
 
       document.getElementById('mpTitle').textContent = title;
       document.getElementById('mpTags').textContent = tags;
       document.getElementById('mpCover').src = cover;
 
+      var proxyUrl = '/api/v1/audio/' + audioId;
+      var cleanTitle = encodeURIComponent(currentActiveTitle);
+
       var dlM4A = document.getElementById('mpDownloadM4A');
-      dlM4A.onclick = function(e) {
-        e.preventDefault();
-        downloadDirectM4A();
-      };
+      dlM4A.href = proxyUrl + '?download=true&title=' + cleanTitle;
+      dlM4A.onclick = null;
 
       var audio = document.getElementById('mpAudio');
-      audio.src = currentActiveDirectUrl;
+      audio.src = proxyUrl;
       audio.load();
 
       openModal('miniPlayerModal');
@@ -585,38 +583,17 @@ function getDashboardHTML() {
       closeModal('miniPlayerModal');
     }
 
-    // DOWNLOAD M4A ASLI LANGSUNG DARI BROWSER (TANPA LEWAT SERVER)
-    async function downloadDirectM4A() {
-      if (!currentActiveDirectUrl) return;
-      showToast('PROSES', 'Mengunduh file audio M4A asli...', 'info');
-      try {
-        var resp = await fetch(currentActiveDirectUrl);
-        var blob = await resp.blob();
-        var blobUrl = URL.createObjectURL(blob);
-        var a = document.createElement('a');
-        a.href = blobUrl;
-        a.download = currentActiveTitle + '.m4a';
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(blobUrl);
-        showToast('BERHASIL', 'M4A berhasil disimpan ke folder Download!', 'success');
-      } catch (err) {
-        window.open(currentActiveDirectUrl, '_blank');
-      }
-    }
-
-    // KONVERSI KE MP3 MURNI 320 KBPS DI BROWSER DARI DATA ASLI (SEPERTI MASTERAUDIO.PRO)
+    // KONVERSI KE MP3 MURNI 320 KBPS MENGGUNAKAN BUFFER SERVER YANG UTUH
     async function downloadAsRealMP3() {
-      if (!currentActiveDirectUrl) return;
+      if (!currentActiveAudioId) return;
       var btn = document.getElementById('btnConvertMP3');
       var originalText = btn.innerHTML;
       btn.disabled = true;
       btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>Converting...';
-      showToast('PROSES', 'Mengonversi ke format MP3 murni...', 'info');
+      showToast('PROSES', 'Mengonversi ke MP3 murni...', 'info');
 
       try {
-        var response = await fetch(currentActiveDirectUrl);
+        var response = await fetch('/api/v1/audio/' + currentActiveAudioId);
         var arrayBuffer = await response.arrayBuffer();
 
         var audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -659,9 +636,9 @@ function getDashboardHTML() {
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
 
-        showToast('BERHASIL', 'File MP3 murni siap diputar!', 'success');
+        showToast('BERHASIL', 'File MP3 murni berhasil diunduh!', 'success');
       } catch (err) {
-        showToast('ERROR', 'Gagal konversi MP3, unduh M4A asli saja', 'error');
+        showToast('ERROR', 'Gagal memproses MP3: ' + err.message, 'error');
       } finally {
         btn.disabled = false;
         btn.innerHTML = originalText;
