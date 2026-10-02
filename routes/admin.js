@@ -544,18 +544,18 @@ function getDashboardHTML() {
       document.getElementById('mpTitle').textContent = title;
       document.getElementById('mpTags').textContent = tags;
       document.getElementById('mpCover').src = cover;
-      
-      var playUrl = audioUrl || ('https://d2lwuy8qc234o3.cloudfront.net/1/clip/' + audioId + '.m4a');
+
+      var streamApiUrl = '/api/v1/audio/' + audioId;
+      var cleanTitle = encodeURIComponent(title || 'suno_song');
 
       var dlM4A = document.getElementById('mpDownloadM4A');
-      dlM4A.href = playUrl;
-      dlM4A.setAttribute('download', (title || 'song') + '.m4a');
+      dlM4A.href = streamApiUrl + '?download=true&format=m4a&title=' + cleanTitle;
 
       var dlMP3 = document.getElementById('mpDownloadMP3');
-      dlMP3.href = '/api/v1/audio/' + audioId + '?download=true&format=mp3&title=' + encodeURIComponent(title || 'song');
+      dlMP3.href = streamApiUrl + '?download=true&format=mp3&title=' + cleanTitle;
 
       var audio = document.getElementById('mpAudio');
-      audio.src = playUrl;
+      audio.src = streamApiUrl;
       audio.load();
 
       openModal('miniPlayerModal');
