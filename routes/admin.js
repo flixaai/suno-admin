@@ -64,6 +64,11 @@ function getDashboardHTML() {
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="/socket.io/socket.io.js"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  
+  <!-- ERUDA MOBILE IN-BROWSER CONSOLE -->
+  <script src="https://cdn.jsdelivr.net/npm/eruda"></script>
+  <script>eruda.init();</script>
+
   <style>
     body { font-family: system-ui, sans-serif; background-color: #0c0d12; }
     .suno-card { background-color: #12131a; border: 1px solid #1f212c; }
@@ -73,10 +78,10 @@ function getDashboardHTML() {
     ::-webkit-scrollbar-thumb { background: #262836; border-radius: 4px; }
   </style>
 </head>
-<body class="text-zinc-200 min-h-screen flex flex-col">
+<body class="text-zinc-200 min-h-screen flex flex-col relative">
 
   <!-- NOTIFIKASI PAS DI TENGAH LAYAR -->
-  <div id="toastContainer" class="fixed top-6 left-1/2 -translate-x-1/2 z-50 space-y-2 pointer-events-none w-full max-w-sm px-4 flex flex-col items-center"></div>
+  <div id="toastContainer" class="fixed top-6 left-1/2 -translate-x-1/2 z-[100] space-y-2 pointer-events-none w-full max-w-sm px-4 flex flex-col items-center"></div>
 
   <!-- HEADER -->
   <header class="bg-[#101117] border-b border-[#1c1e28] sticky top-0 z-40 px-4 lg:px-8 py-3.5 flex items-center justify-between">
@@ -89,8 +94,8 @@ function getDashboardHTML() {
     </div>
     
     <div class="flex items-center space-x-2 sm:space-x-3">
-      <!-- Tombol DATA RAW SUNO Langsung Di Header -->
-      <button onclick="fetchRawSunoData()" class="px-3 py-1.5 rounded-xl bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-500 hover:to-amber-500 text-white font-bold text-xs shadow-md transition flex items-center space-x-1.5">
+      <!-- Tombol DATA RAW SUNO -->
+      <button type="button" onclick="fetchRawSunoData()" class="cursor-pointer px-3 py-1.5 rounded-xl bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-500 hover:to-amber-500 text-white font-bold text-xs shadow-md transition flex items-center space-x-1.5 active:scale-95">
         <i class="fas fa-code text-[11px]"></i><span class="hidden sm:inline">DATA RAW SUNO</span>
       </button>
 
@@ -99,31 +104,31 @@ function getDashboardHTML() {
         <span class="text-zinc-400">Credits:</span>
         <span id="topCreditDisplay" class="text-orange-400 font-bold">0</span>
       </div>
-      <button onclick="refreshAll()" class="p-2 rounded-xl bg-zinc-800/80 hover:bg-zinc-700 text-zinc-300 transition" title="Refresh Data"><i class="fas fa-sync-alt text-xs"></i></button>
-      <button onclick="toggleDrawer(true)" class="p-2 px-3 rounded-xl bg-orange-600 hover:bg-orange-500 text-white font-bold text-xs flex items-center space-x-1.5 transition">
+      <button type="button" onclick="refreshAll()" class="cursor-pointer p-2 rounded-xl bg-zinc-800/80 hover:bg-zinc-700 text-zinc-300 transition" title="Refresh Data"><i class="fas fa-sync-alt text-xs"></i></button>
+      <button type="button" onclick="toggleDrawer(true)" class="cursor-pointer p-2 px-3 rounded-xl bg-orange-600 hover:bg-orange-500 text-white font-bold text-xs flex items-center space-x-1.5 transition">
         <i class="fas fa-bars"></i><span class="hidden sm:inline">Menu</span>
       </button>
     </div>
   </header>
 
   <!-- DRAWER MENU KANAN ATAS -->
-  <div id="drawerOverlay" onclick="toggleDrawer(false)" class="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 hidden"></div>
-  <div id="sideDrawer" class="fixed top-0 right-0 bottom-0 w-72 bg-[#12131c] border-l border-[#202230] z-50 transform translate-x-full transition-transform duration-300 flex flex-col p-6 shadow-2xl">
+  <div id="drawerOverlay" onclick="toggleDrawer(false)" style="display: none;" class="fixed inset-0 bg-black/70 backdrop-blur-sm z-50"></div>
+  <div id="sideDrawer" style="display: none;" class="fixed top-0 right-0 bottom-0 w-72 bg-[#12131c] border-l border-[#202230] z-50 flex flex-col p-6 shadow-2xl">
     <div class="flex items-center justify-between pb-6 border-b border-[#202230]">
       <h3 class="text-sm font-bold text-white uppercase tracking-wider">Menu Fitur</h3>
-      <button onclick="toggleDrawer(false)" class="text-zinc-400 hover:text-white"><i class="fas fa-times text-lg"></i></button>
+      <button type="button" onclick="toggleDrawer(false)" class="text-zinc-400 hover:text-white"><i class="fas fa-times text-lg"></i></button>
     </div>
     <div class="space-y-2 mt-6 flex-1 text-sm font-semibold">
-      <button onclick="switchTab('dashboard')" class="w-full p-3 rounded-xl hover:bg-zinc-800/70 text-left flex items-center space-x-3 text-zinc-300 hover:text-white">
+      <button type="button" onclick="switchTab('dashboard')" class="w-full p-3 rounded-xl hover:bg-zinc-800/70 text-left flex items-center space-x-3 text-zinc-300 hover:text-white">
         <i class="fas fa-gauge-high text-orange-500 w-5"></i><span>Dashboard & Saldo</span>
       </button>
-      <button onclick="switchTab('generator')" class="w-full p-3 rounded-xl hover:bg-zinc-800/70 text-left flex items-center space-x-3 text-zinc-300 hover:text-white">
+      <button type="button" onclick="switchTab('generator')" class="w-full p-3 rounded-xl hover:bg-zinc-800/70 text-left flex items-center space-x-3 text-zinc-300 hover:text-white">
         <i class="fas fa-wand-magic-sparkles text-orange-500 w-5"></i><span>Song Studio (Generate)</span>
       </button>
-      <button onclick="switchTab('queue')" class="w-full p-3 rounded-xl hover:bg-zinc-800/70 text-left flex items-center space-x-3 text-zinc-300 hover:text-white">
+      <button type="button" onclick="switchTab('queue')" class="w-full p-3 rounded-xl hover:bg-zinc-800/70 text-left flex items-center space-x-3 text-zinc-300 hover:text-white">
         <i class="fas fa-list-check text-orange-500 w-5"></i><span>Task Queue</span>
       </button>
-      <button onclick="openLogsModal()" class="w-full p-3 rounded-xl hover:bg-zinc-800/70 text-left flex items-center space-x-3 text-zinc-300 hover:text-white">
+      <button type="button" onclick="openLogsModal()" class="w-full p-3 rounded-xl hover:bg-zinc-800/70 text-left flex items-center space-x-3 text-zinc-300 hover:text-white">
         <i class="fas fa-file-waveform text-orange-500 w-5"></i><span>Log Sistem & Error</span>
       </button>
     </div>
@@ -161,13 +166,13 @@ function getDashboardHTML() {
         <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4">
           <div>
             <h2 class="text-sm font-bold text-white uppercase tracking-wider">Manajemen Akun Suno</h2>
-            <p class="text-xs text-zinc-500">Akun tersimpan permanen & auto-refresh (bebas hilang saat deploy)</p>
+            <p class="text-xs text-zinc-500">Akun tersimpan aman & auto-refresh aktif</p>
           </div>
           <div class="flex items-center space-x-2">
-            <button onclick="fetchRawSunoData()" class="px-3.5 py-2.5 bg-orange-600/20 hover:bg-orange-600/30 text-orange-400 border border-orange-500/30 rounded-xl text-xs font-bold transition flex items-center space-x-1.5">
+            <button type="button" onclick="fetchRawSunoData()" class="cursor-pointer px-3.5 py-2.5 bg-orange-600/20 hover:bg-orange-600/30 text-orange-400 border border-orange-500/30 rounded-xl text-xs font-bold transition flex items-center space-x-1.5 active:scale-95">
               <i class="fas fa-code"></i><span>DATA RAW SUNO</span>
             </button>
-            <button onclick="openImportCookieModal()" class="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition flex items-center space-x-2">
+            <button type="button" onclick="openImportCookieModal()" class="cursor-pointer px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition flex items-center space-x-2 active:scale-95">
               <i class="fas fa-cookie-bite"></i><span>Import Cookie Baru</span>
             </button>
           </div>
@@ -230,7 +235,7 @@ function getDashboardHTML() {
               <label for="songInstrumental" class="text-xs text-zinc-300 select-none">Instrumental (Musik Saja Tanpa Vokal)</label>
             </div>
 
-            <button type="submit" id="btnGenSong" class="w-full py-3.5 rounded-xl bg-orange-600 hover:bg-orange-500 text-white font-bold text-xs uppercase tracking-wider transition shadow-lg shadow-orange-600/25 flex items-center justify-center space-x-2">
+            <button type="submit" id="btnGenSong" class="cursor-pointer w-full py-3.5 rounded-xl bg-orange-600 hover:bg-orange-500 text-white font-bold text-xs uppercase tracking-wider transition shadow-lg shadow-orange-600/25 flex items-center justify-center space-x-2 active:scale-95">
               <i class="fas fa-wand-magic-sparkles"></i>
               <span>Generate Song Now</span>
             </button>
@@ -271,19 +276,17 @@ function getDashboardHTML() {
   </main>
 
   <!-- POPUP MINI PLAYER (PUTAR & DOWNLOAD MULTI-FORMAT) -->
-  <div id="miniPlayerModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+  <div id="miniPlayerModal" style="display: none;" class="fixed inset-0 z-50 items-center justify-center bg-black/80 backdrop-blur-sm p-4">
     <div class="suno-card rounded-3xl p-6 w-full max-w-sm text-center shadow-2xl relative border border-orange-500/30">
-      <button onclick="closeMiniPlayer()" class="absolute top-4 right-4 text-zinc-400 hover:text-white p-2"><i class="fas fa-times text-lg"></i></button>
+      <button type="button" onclick="closeMiniPlayer()" class="absolute top-4 right-4 text-zinc-400 hover:text-white p-2"><i class="fas fa-times text-lg"></i></button>
       <img id="mpCover" src="" class="w-40 h-40 rounded-2xl mx-auto object-cover mb-4 shadow-xl border border-zinc-800">
       <h3 id="mpTitle" class="text-sm font-bold text-white truncate">Title</h3>
       <p id="mpTags" class="text-xs text-zinc-400 truncate mt-1">Tags</p>
       
-      <!-- Pemutar Audio Native -->
       <div class="mt-4">
         <audio id="mpAudio" controls class="w-full h-10"></audio>
       </div>
 
-      <!-- Tombol Download Multi-Format -->
       <div class="mt-5 pt-4 border-t border-[#202230] space-y-2">
         <div class="text-[11px] text-zinc-500 font-bold uppercase tracking-wider mb-2">Pilihan Download:</div>
         <div class="grid grid-cols-2 gap-2 text-xs font-bold">
@@ -298,22 +301,22 @@ function getDashboardHTML() {
     </div>
   </div>
 
-  <!-- POPUP MODAL "DATA RAW SUNO" (LANGSUNG AUTO-COPY) -->
-  <div id="rawSunoModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+  <!-- POPUP MODAL "DATA RAW SUNO" -->
+  <div id="rawSunoModal" style="display: none;" class="fixed inset-0 z-50 items-center justify-center bg-black/80 backdrop-blur-sm p-4">
     <div class="suno-card rounded-3xl p-6 w-full max-w-xl max-h-[85vh] flex flex-col shadow-2xl relative border border-orange-500/40">
       <div class="flex items-center justify-between pb-3 border-b border-[#202230]">
         <div class="flex items-center space-x-2">
           <i class="fas fa-code text-orange-500"></i>
           <h3 class="text-sm font-bold text-white uppercase tracking-wider">DATA RAW SUNO (Respon Asli)</h3>
         </div>
-        <button onclick="closeModal('rawSunoModal')" class="text-zinc-400 hover:text-white p-1"><i class="fas fa-times text-lg"></i></button>
+        <button type="button" onclick="closeModal('rawSunoModal')" class="text-zinc-400 hover:text-white p-1"><i class="fas fa-times text-lg"></i></button>
       </div>
       <div class="flex-1 overflow-y-auto my-4 rounded-xl bg-[#0a0a0f] p-3.5 border border-[#1f212d]">
         <pre id="rawSunoContent" class="text-[11px] font-mono text-emerald-400 whitespace-pre-wrap select-all"></pre>
       </div>
       <div class="pt-3 border-t border-[#202230] flex items-center justify-between">
-        <span class="text-[10px] text-zinc-500">Otomatis tersalin saat tombol ditekan</span>
-        <button onclick="copyRawSunoText()" class="px-4 py-2 bg-orange-600 hover:bg-orange-500 text-white rounded-xl text-xs font-bold transition flex items-center space-x-1.5">
+        <span class="text-[10px] text-zinc-500">Otomatis tersalin ke clipboard</span>
+        <button type="button" onclick="copyRawSunoText()" class="px-4 py-2 bg-orange-600 hover:bg-orange-500 text-white rounded-xl text-xs font-bold transition flex items-center space-x-1.5">
           <i class="fas fa-copy"></i><span>Salin Ulang Teks</span>
         </button>
       </div>
@@ -321,30 +324,30 @@ function getDashboardHTML() {
   </div>
 
   <!-- POPUP MODAL "LOG SISTEM & ERROR" -->
-  <div id="systemLogsModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+  <div id="systemLogsModal" style="display: none;" class="fixed inset-0 z-50 items-center justify-center bg-black/80 backdrop-blur-sm p-4">
     <div class="suno-card rounded-3xl p-6 w-full max-w-2xl max-h-[85vh] flex flex-col shadow-2xl relative border border-zinc-700/40">
       <div class="flex items-center justify-between pb-3 border-b border-[#202230]">
         <div class="flex items-center space-x-2">
           <i class="fas fa-file-waveform text-orange-500"></i>
           <h3 class="text-sm font-bold text-white uppercase tracking-wider">Log Sistem & Error (Realtime)</h3>
         </div>
-        <button onclick="closeModal('systemLogsModal')" class="text-zinc-400 hover:text-white p-1"><i class="fas fa-times text-lg"></i></button>
+        <button type="button" onclick="closeModal('systemLogsModal')" class="text-zinc-400 hover:text-white p-1"><i class="fas fa-times text-lg"></i></button>
       </div>
       <div id="logsContainer" class="flex-1 overflow-y-auto my-4 space-y-2.5 rounded-xl bg-[#0a0a0f] p-3.5 border border-[#1f212d]"></div>
       <div class="pt-3 border-t border-[#202230] text-right">
-        <button onclick="closeModal('systemLogsModal')" class="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-xl text-xs font-bold">Tutup</button>
+        <button type="button" onclick="closeModal('systemLogsModal')" class="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-xl text-xs font-bold">Tutup</button>
       </div>
     </div>
   </div>
 
   <!-- MODAL IMPORT COOKIE -->
-  <div id="importCookieModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+  <div id="importCookieModal" style="display: none;" class="fixed inset-0 z-50 items-center justify-center bg-black/80 backdrop-blur-sm p-4">
     <div class="suno-card rounded-2xl p-6 w-full max-w-md">
       <div class="flex items-center justify-between mb-4">
         <h3 class="text-sm font-bold text-white">Import Cookie Suno (Kiwi Browser)</h3>
-        <button onclick="closeModal('importCookieModal')" class="text-zinc-500 hover:text-white"><i class="fas fa-times"></i></button>
+        <button type="button" onclick="closeModal('importCookieModal')" class="text-zinc-500 hover:text-white"><i class="fas fa-times"></i></button>
       </div>
-      <p class="text-[11px] text-zinc-400 mb-3">Cookie akan disimpan permanen. Saat server deploy ulang, sesi akan pulih otomatis.</p>
+      <p class="text-[11px] text-zinc-400 mb-3">Cookie akan disimpan aman & otomatis dipulihkan jika server dideploy ulang.</p>
       <form id="importCookieForm" class="space-y-4">
         <div>
           <label class="block text-xs font-semibold text-zinc-400 mb-1">Email Akun Suno</label>
@@ -354,7 +357,7 @@ function getDashboardHTML() {
           <label class="block text-xs font-semibold text-zinc-400 mb-1">Paste JSON Cookie (Lengkap)</label>
           <textarea id="cookieJsonRaw" rows="6" required class="w-full px-3.5 py-2.5 rounded-xl suno-input text-white text-xs font-mono focus:outline-none" placeholder='[ { "name": "__client", "value": "..." } ]'></textarea>
         </div>
-        <button type="submit" id="btnImportSubmit" class="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition">Aktifkan & Tes Akun</button>
+        <button type="submit" id="btnImportSubmit" class="cursor-pointer w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition">Aktifkan & Tes Akun</button>
       </form>
     </div>
   </div>
@@ -367,10 +370,29 @@ function getDashboardHTML() {
     var systemLogsData = [];
     var cachedRawSuno = '';
 
+    // Kontrol Tampilan Modal Langsung (Bebas Halangan)
+    function openModal(id) {
+      var el = document.getElementById(id);
+      if (el) el.style.display = 'flex';
+    }
+
+    function closeModal(id) {
+      var el = document.getElementById(id);
+      if (el) el.style.display = 'none';
+    }
+
+    function openImportCookieModal() { openModal('importCookieModal'); }
+
+    function toggleDrawer(open) {
+      var overlay = document.getElementById('drawerOverlay');
+      var drawer = document.getElementById('sideDrawer');
+      if (overlay) overlay.style.display = open ? 'block' : 'none';
+      if (drawer) drawer.style.display = open ? 'flex' : 'none';
+    }
+
     socket.on('accounts:updated', function(data) {
       accounts = data || [];
       renderAccounts();
-      // Auto-Restore Sesi jika Server Habis Dideploy Ulang
       if (accounts.length === 0) {
         autoRestoreLocalSession();
       }
@@ -400,7 +422,6 @@ function getDashboardHTML() {
       showToast(data.type.toUpperCase(), data.message, data.type);
     });
 
-    // Auto-Restore Sesi dari LocalStorage setelah Deploy
     function autoRestoreLocalSession() {
       try {
         var saved = localStorage.getItem('suno_session_store');
@@ -409,7 +430,7 @@ function getDashboardHTML() {
           if (parsed && parsed.email && parsed.cookieJson) {
             socket.emit('account:importCookie', parsed, function(res) {
               if (res && res.success) {
-                showToast('PULIH', 'Sesi akun dipulihkan otomatis setelah deploy!', 'success');
+                showToast('PULIH', 'Sesi akun dipulihkan otomatis!', 'success');
               }
             });
           }
@@ -420,7 +441,7 @@ function getDashboardHTML() {
     function renderAccounts() {
       var tbody = document.getElementById('accountsTableBody');
       if (!accounts.length) {
-        tbody.innerHTML = '<tr><td colspan="5" class="text-center py-6 text-zinc-500">Belum ada akun aktif. Klik Import Cookie di atas!</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="5" class="text-center py-6 text-zinc-500">Belum ada akun aktif. Klik tombol Import Cookie Baru di atas!</td></tr>';
         document.getElementById('statTotalAccounts').textContent = '0';
         document.getElementById('statActiveSessions').textContent = '0';
         document.getElementById('topCreditDisplay').textContent = '0';
@@ -439,8 +460,8 @@ function getDashboardHTML() {
           '<td class="p-3.5 text-center">' + statusBadge + '</td>' +
           '<td class="p-3.5 text-center font-bold text-orange-400">' + (acc.creditsLeft || 0) + '</td>' +
           '<td class="p-3.5 text-center">' +
-            '<button onclick="checkCredits(\'' + acc.id + '\')" class="px-2.5 py-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg text-xs mr-2"><i class="fas fa-coins mr-1"></i>Cek</button>' +
-            '<button onclick="deleteAccountDirect(\'' + acc.id + '\')" class="px-2.5 py-1 bg-red-600 hover:bg-red-500 text-white rounded-lg text-xs font-bold transition"><i class="fas fa-trash"></i></button>' +
+            '<button type="button" onclick="checkCredits(\'' + acc.id + '\')" class="cursor-pointer px-2.5 py-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg text-xs mr-2"><i class="fas fa-coins mr-1"></i>Cek</button>' +
+            '<button type="button" onclick="deleteAccountDirect(\'' + acc.id + '\')" class="cursor-pointer px-2.5 py-1 bg-red-600 hover:bg-red-500 text-white rounded-lg text-xs font-bold transition"><i class="fas fa-trash"></i></button>' +
           '</td>' +
         '</tr>';
       }).join('');
@@ -481,7 +502,7 @@ function getDashboardHTML() {
             '</div>' +
           '</div>' +
           '<div class="flex items-center space-x-2 shrink-0">' +
-            '<button onclick="openMiniPlayer(\'' + clip.id + '\', \'' + cleanTitle + '\', \'' + cleanTags + '\', \'' + clip.imageUrl + '\', \'' + clip.audioUrl + '\')" class="p-2.5 rounded-xl bg-orange-600/10 text-orange-400 hover:bg-orange-600 hover:text-white text-xs transition" title="Putar">' +
+            '<button type="button" onclick="openMiniPlayer(\'' + clip.id + '\', \'' + cleanTitle + '\', \'' + cleanTags + '\', \'' + clip.imageUrl + '\', \'' + clip.audioUrl + '\')" class="cursor-pointer p-2.5 rounded-xl bg-orange-600/10 text-orange-400 hover:bg-orange-600 hover:text-white text-xs transition" title="Putar">' +
               '<i class="fas fa-play"></i>' +
             '</button>' +
             '<a href="/api/v1/audio/' + clip.id + '?download=true&format=mp3&title=' + encodeURIComponent(clip.title || 'song') + '" class="p-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs transition" title="Download MP3">' +
@@ -500,7 +521,7 @@ function getDashboardHTML() {
       }
       tbody.innerHTML = tasks.map(function(t) {
         var actionBtn = t.result 
-          ? '<button onclick="openMiniPlayer(\'' + t.result[0].id + '\', \'' + (t.result[0].title || '').replace(/'/g, "\\'") + '\', \'' + (t.result[0].tags || '').replace(/'/g, "\\'") + '\', \'' + t.result[0].imageUrl + '\', \'' + t.result[0].audioUrl + '\')" class="px-3 py-1 bg-orange-600 text-white rounded-lg text-xs font-bold"><i class="fas fa-play mr-1"></i>Play</button>'
+          ? '<button type="button" onclick="openMiniPlayer(\'' + t.result[0].id + '\', \'' + (t.result[0].title || '').replace(/'/g, "\\'") + '\', \'' + (t.result[0].tags || '').replace(/'/g, "\\'") + '\', \'' + t.result[0].imageUrl + '\', \'' + t.result[0].audioUrl + '\')" class="cursor-pointer px-3 py-1 bg-orange-600 text-white rounded-lg text-xs font-bold"><i class="fas fa-play mr-1"></i>Play</button>'
           : '<span class="text-zinc-500">Memproses...</span>';
 
         return '<tr class="hover:bg-[#181a24] transition">' +
@@ -511,7 +532,6 @@ function getDashboardHTML() {
       }).join('');
     }
 
-    // Pemutar Audio Langsung & Download
     function openMiniPlayer(audioId, title, tags, cover, audioUrl) {
       document.getElementById('mpTitle').textContent = title;
       document.getElementById('mpTags').textContent = tags;
@@ -519,46 +539,33 @@ function getDashboardHTML() {
       
       var playUrl = audioUrl || ('https://d2lwuy8qc234o3.cloudfront.net/1/clip/' + audioId + '.m4a');
 
-      // Tombol Download M4A Langsung
       var dlM4A = document.getElementById('mpDownloadM4A');
       dlM4A.href = playUrl;
       dlM4A.setAttribute('download', (title || 'song') + '.m4a');
 
-      // Tombol Download MP3 Proxy
       var dlMP3 = document.getElementById('mpDownloadMP3');
       dlMP3.href = '/api/v1/audio/' + audioId + '?download=true&format=mp3&title=' + encodeURIComponent(title || 'song');
 
-      // Play Audio
       var audio = document.getElementById('mpAudio');
       audio.src = playUrl;
       audio.load();
 
-      var modal = document.getElementById('miniPlayerModal');
-      modal.classList.remove('hidden');
-      modal.classList.add('flex');
+      openModal('miniPlayerModal');
       audio.play().catch(function(e) {});
     }
 
     function closeMiniPlayer() {
       var audio = document.getElementById('mpAudio');
       audio.pause();
-      document.getElementById('miniPlayerModal').classList.add('hidden');
-      document.getElementById('miniPlayerModal').classList.remove('flex');
+      closeModal('miniPlayerModal');
     }
 
-    // FITUR TOMBOL "DATA RAW SUNO" (LANGSUNG COPY KE CLIPBOARD)
     function fetchRawSunoData() {
       socket.emit('rawsuno:get', {}, function(res) {
         if (res && res.data) {
           cachedRawSuno = JSON.stringify(res.data, null, 2);
           document.getElementById('rawSunoContent').textContent = cachedRawSuno;
-          
-          // Buka Modal
-          var modal = document.getElementById('rawSunoModal');
-          modal.classList.remove('hidden');
-          modal.classList.add('flex');
-
-          // Otomatis Salin ke Clipboard
+          openModal('rawSunoModal');
           copyRawSunoText();
         }
       });
@@ -574,12 +581,9 @@ function getDashboardHTML() {
       }
     }
 
-    // FITUR MODAL LOG SISTEM & ERROR
     function openLogsModal() {
       renderLogs();
-      var modal = document.getElementById('systemLogsModal');
-      modal.classList.remove('hidden');
-      modal.classList.add('flex');
+      openModal('systemLogsModal');
       toggleDrawer(false);
     }
 
@@ -608,14 +612,10 @@ function getDashboardHTML() {
       }).join('');
     }
 
-    function toggleDrawer(open) {
-      document.getElementById('drawerOverlay').classList.toggle('hidden', !open);
-      document.getElementById('sideDrawer').classList.toggle('translate-x-full', !open);
-    }
-
     function switchTab(view) {
       ['dashboard', 'generator', 'queue'].forEach(function(v) {
-        document.getElementById('view-' + v).classList.toggle('hidden', v !== view);
+        var el = document.getElementById('view-' + v);
+        if (el) el.classList.toggle('hidden', v !== view);
       });
       toggleDrawer(false);
     }
@@ -657,7 +657,6 @@ function getDashboardHTML() {
         btn.disabled = false;
         btn.innerHTML = 'Aktifkan & Tes Akun';
         if (res.success) {
-          // Simpan permanen di LocalStorage agar tidak hilang saat deploy ulang
           try {
             localStorage.setItem('suno_session_store', JSON.stringify(payload));
           } catch(e) {}
@@ -677,10 +676,7 @@ function getDashboardHTML() {
       socket.emit('account:delete', { id: id }); 
     }
     function refreshAll() { socket.emit('refresh:all', {}); }
-    function openImportCookieModal() { document.getElementById('importCookieModal').classList.remove('hidden'); document.getElementById('importCookieModal').classList.add('flex'); }
-    function closeModal(id) { document.getElementById(id).classList.add('hidden'); document.getElementById(id).classList.remove('flex'); }
 
-    // NOTIFIKASI PAS DI TENGAH LAYAR
     function showToast(title, message, type) {
       var c = document.getElementById('toastContainer');
       var toast = document.createElement('div');
@@ -688,7 +684,8 @@ function getDashboardHTML() {
         : (type === 'error') ? 'bg-[#211214]/95 border-red-500/50 text-red-300' 
         : 'bg-[#1e1713]/95 border-orange-500/50 text-orange-300';
       
-      toast.className = 'pointer-events-auto p-3.5 rounded-2xl shadow-2xl border text-xs w-full text-center backdrop-blur-md transition-all transform animate-bounce ' + bgBorder;
+      toast.className = 'p-3.5 rounded-2xl shadow-2xl border text-xs w-full text-center backdrop-blur-md transition-all ' + bgBorder;
+      toast.style.pointerEvents = 'auto';
       toast.innerHTML = '<div class="font-black text-sm uppercase tracking-wide">' + title + '</div><div class="mt-1 text-zinc-300">' + message + '</div>';
       c.appendChild(toast);
       setTimeout(function() { 
