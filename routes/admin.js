@@ -129,6 +129,9 @@ function getDashboardHTML() {
       <button type="button" onclick="switchTab('queue')" class="w-full p-3 rounded-xl hover:bg-zinc-800/70 text-left flex items-center space-x-3 text-zinc-300 hover:text-white">
         <i class="fas fa-list-check text-orange-500 w-5"></i><span>Task Queue</span>
       </button>
+      <button type="button" onclick="openProxyModal()" class="w-full p-3 rounded-xl hover:bg-zinc-800/70 text-left flex items-center space-x-3 text-zinc-300 hover:text-white">
+        <i class="fas fa-globe text-orange-500 w-5"></i><span>Pengaturan Proxy</span>
+      </button>
       <button type="button" onclick="openLogsModal()" class="w-full p-3 rounded-xl hover:bg-zinc-800/70 text-left flex items-center space-x-3 text-zinc-300 hover:text-white">
         <i class="fas fa-file-waveform text-orange-500 w-5"></i><span>Log Sistem & Error</span>
       </button>
@@ -276,7 +279,7 @@ function getDashboardHTML() {
 
   </main>
 
-  <!-- POPUP MINI PLAYER (AES DECRYPTOR & DOWNLOAD) -->
+  <!-- POPUP MINI PLAYER (AUDIOPIPE LANGSUNG) -->
   <div id="miniPlayerModal" style="display: none;" class="fixed inset-0 z-50 items-center justify-center bg-black/80 backdrop-blur-sm p-4">
     <div class="suno-card rounded-3xl p-6 w-full max-w-sm text-center shadow-2xl relative border border-orange-500/30">
       <button type="button" onclick="closeMiniPlayer()" class="absolute top-4 right-4 text-zinc-400 hover:text-white p-2"><i class="fas fa-times text-lg"></i></button>
@@ -299,6 +302,36 @@ function getDashboardHTML() {
           </button>
         </div>
       </div>
+    </div>
+  </div>
+
+  <!-- POPUP MODAL "PENGATURAN PROXY" -->
+  <div id="proxyModal" style="display: none;" class="fixed inset-0 z-50 items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+    <div class="suno-card rounded-2xl p-6 w-full max-w-md">
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="text-sm font-bold text-white">Pengaturan Proxy (Bright Data)</h3>
+        <button type="button" onclick="closeModal('proxyModal')" class="text-zinc-500 hover:text-white"><i class="fas fa-times"></i></button>
+      </div>
+      <p class="text-[11px] text-zinc-400 mb-3">Gunakan proxy ISP untuk mencegah error 403 (Cloudflare Block) dari Suno.</p>
+      <form id="proxyForm" class="space-y-3">
+        <div>
+          <label class="block text-xs font-semibold text-zinc-400 mb-1">Host Proxy</label>
+          <input type="text" id="proxyHost" class="w-full px-3.5 py-2.5 rounded-xl suno-input text-white text-xs focus:outline-none" placeholder="brd.superproxy.io">
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-zinc-400 mb-1">Port</label>
+          <input type="number" id="proxyPort" class="w-full px-3.5 py-2.5 rounded-xl suno-input text-white text-xs focus:outline-none" placeholder="44445">
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-zinc-400 mb-1">Username</label>
+          <input type="text" id="proxyUser" class="w-full px-3.5 py-2.5 rounded-xl suno-input text-white text-xs focus:outline-none" placeholder="brd-customer-xxx">
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-zinc-400 mb-1">Password</label>
+          <input type="password" id="proxyPass" class="w-full px-3.5 py-2.5 rounded-xl suno-input text-white text-xs focus:outline-none" placeholder="Password Proxy">
+        </div>
+        <button type="submit" id="btnProxySubmit" class="cursor-pointer w-full py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs transition mt-2">Simpan & Tes Koneksi</button>
+      </form>
     </div>
   </div>
 
@@ -372,7 +405,7 @@ function getDashboardHTML() {
     var cachedRawSuno = '';
     var currentActiveAudioId = '';
     var currentActiveTitle = '';
-    var currentDecryptedBuffer = null;
+    var currentActiveDirectUrl = '';
 
     function openModal(id) {
       var el = document.getElementById(id);
@@ -385,6 +418,7 @@ function getDashboardHTML() {
     }
 
     function openImportCookieModal() { openModal('importCookieModal'); }
+    function openProxyModal() { openModal('proxyModal'); toggleDrawer(false); }
 
     function toggleDrawer(open) {
       var overlay = document.getElementById('drawerOverlay');
@@ -398,6 +432,15 @@ function getDashboardHTML() {
       renderAccounts();
       if (accounts.length === 0) {
         autoRestoreLocalVault();
+      }
+    });
+
+    socket.on('proxy:data', function(data) {
+      if (data) {
+        document.getElementById('proxyHost').value = data.host || '';
+        document.getElementById('proxyPort').value = data.port || '';
+        document.getElementById('proxyUser').value = data.username || '';
+        document.getElementById('proxyPass').value = data.password || '';
       }
     });
 
@@ -548,12 +591,10 @@ function getDashboardHTML() {
       }).join('');
     }
 
-    // AES DECRYPTOR & PLAYER (100% BROWSER)
-    async function openMiniPlayer(audioId, title, tags, cover, audioUrl) {
+    // PEMUTAR AUDIO & DOWNLOAD (JALUR AUDIOPIPE LANGSUNG)
+    function openMiniPlayer(audioId, title, tags, cover, audioUrl) {
       currentActiveAudioId = audioId;
       currentActiveTitle = title || 'song';
-      currentDecryptedBuffer = null;
-
       document.getElementById('mpTitle').textContent = title;
       document.getElementById('mpTags').textContent = tags;
       document.getElementById('mpCover').src = cover;
@@ -563,43 +604,16 @@ function getDashboardHTML() {
       var dlM4A = document.getElementById('mpDownloadM4A');
       var btnMP3 = document.getElementById('btnConvertMP3');
       
-      audio.src = ''; 
-      dlM4A.href = '#'; 
-      dlM4A.removeAttribute('download'); 
-      btnMP3.disabled = true;
+      currentActiveDirectUrl = '/api/v1/audio/' + audioId;
+      var cleanTitle = encodeURIComponent(currentActiveTitle);
       
-      showToast('PROSES', 'Membuka gembok AES audio...', 'info');
+      audio.src = currentActiveDirectUrl;
+      dlM4A.href = currentActiveDirectUrl + '?download=true&format=m4a&title=' + cleanTitle;
+      dlM4A.setAttribute('download', currentActiveTitle + '.m4a');
+      btnMP3.disabled = false;
       
-      try {
-        var keyRes = await fetch('/api/v1/keys/' + audioId);
-        var keyData = await keyRes.json();
-        
-        if (!keyData || !keyData.key) throw new Error("Kunci AES tidak ditemukan");
-
-        var audioRes = await fetch('/api/v1/raw-audio?url=' + encodeURIComponent(keyData.audioUrl));
-        var encBuffer = await audioRes.arrayBuffer();
-        
-        var keyBytes = Uint8Array.from(atob(keyData.key), c => c.charCodeAt(0));
-        var ivBytes = Uint8Array.from(atob(keyData.iv), c => c.charCodeAt(0));
-        
-        var cryptoKey = await crypto.subtle.importKey("raw", keyBytes, {name: "AES-CTR"}, false, ["decrypt"]);
-        var decBuffer = await crypto.subtle.decrypt({name: "AES-CTR", counter: ivBytes, length: 128}, cryptoKey, encBuffer);
-        
-        currentDecryptedBuffer = decBuffer;
-
-        var blob = new Blob([decBuffer], {type: "audio/mp4"});
-        var blobUrl = URL.createObjectURL(blob);
-        
-        audio.src = blobUrl;
-        dlM4A.href = blobUrl;
-        dlM4A.setAttribute('download', currentActiveTitle + '.m4a');
-        btnMP3.disabled = false;
-        
-        showToast('BERHASIL', 'Gembok AES terbuka! Audio siap diputar.', 'success');
-        audio.play().catch(function(e) {});
-      } catch (err) {
-        showToast('ERROR', 'Gagal membuka gembok AES', 'error');
-      }
+      audio.load();
+      audio.play().catch(function(e) {});
     }
 
     function closeMiniPlayer() {
@@ -608,9 +622,9 @@ function getDashboardHTML() {
       closeModal('miniPlayerModal');
     }
 
-    // KONVERSI KE MP3 MURNI 320 KBPS DI BROWSER DARI DATA YANG SUDAH DIBUKA GEMBOKNYA
+    // KONVERSI KE MP3 MURNI 320 KBPS DI BROWSER
     async function downloadAsRealMP3() {
-      if (!currentDecryptedBuffer) return;
+      if (!currentActiveDirectUrl) return;
       var btn = document.getElementById('btnConvertMP3');
       var originalText = btn.innerHTML;
       btn.disabled = true;
@@ -618,8 +632,11 @@ function getDashboardHTML() {
       showToast('PROSES', 'Mengonversi ke format MP3 murni...', 'info');
 
       try {
+        var response = await fetch(currentActiveDirectUrl);
+        var arrayBuffer = await response.arrayBuffer();
+
         var audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        var audioBuffer = await audioCtx.decodeAudioData(currentDecryptedBuffer.slice(0));
+        var audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
 
         var channels = audioBuffer.numberOfChannels;
         var sampleRate = audioBuffer.sampleRate;
@@ -726,6 +743,31 @@ function getDashboardHTML() {
       });
       toggleDrawer(false);
     }
+
+    document.getElementById('proxyForm').addEventListener('submit', function(e) {
+      e.preventDefault();
+      var btn = document.getElementById('btnProxySubmit');
+      btn.disabled = true;
+      btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Mengetes Koneksi...';
+
+      var payload = {
+        host: document.getElementById('proxyHost').value,
+        port: document.getElementById('proxyPort').value,
+        username: document.getElementById('proxyUser').value,
+        password: document.getElementById('proxyPass').value
+      };
+
+      socket.emit('proxy:test', payload, function(res) {
+        btn.disabled = false;
+        btn.innerHTML = 'Simpan & Tes Koneksi';
+        if (res.success) {
+          showToast('PROXY AKTIF', 'Berhasil menembus Cloudflare Suno!', 'success');
+          closeModal('proxyModal');
+        } else {
+          showToast('PROXY GAGAL', res.error, 'error');
+        }
+      });
+    });
 
     document.getElementById('songGenForm').addEventListener('submit', function(e) {
       e.preventDefault();
