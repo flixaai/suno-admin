@@ -1,464 +1,521 @@
-require('dotenv').config();
 const express = require('express');
-const http = require('http');
-const { Server } = require('socket.io');
-const path = require('path');
-const fs = require('fs');
-const cookieParser = require('cookie-parser');
-const axios = require('axios');
-const { v4: uuidv4 } = require('uuid');
-const cron = require('node-cron');
-const winston = require('winston');
+const router = express.Router();
 
-// Logger Setup
-const logger = winston.createLogger({
-  level: 'info',
-  format: winston.format.combine(winston.format.timestamp(), winston.format.json()),
-  transports: [new winston.transports.Console({ format: winston.format.simple() })]
+router.get('/login', (req, res) => { res.send(getLoginHTML()); });
+router.post('/login', (req, res) => {
+  const { username, password } = req.body;
+  if (username === 'admin' && password === (process.env.ADMIN_PASSWORD || 'admin123')) {
+    res.cookie('auth_token', 'admin_logged_in', { httpOnly: true, maxAge: 86400000 });
+    return res.json({ success: true });
+  }
+  return res.status(401).json({ success: false, error: 'Password atau username salah' });
 });
-global.logger = logger;
 
-const app = express();
-const server = http.createServer(app);
-const io = new Server(server, { cors: { origin: '*' } });
-global.io = io;
+router.get('/logout', (req, res) => { res.clearCookie('auth_token'); res.redirect('/admin/login'); });
+router.get('/dashboard', (req, res) => { res.send(getDashboardHTML()); });
 
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ extended: true, limit: '50mb' }));
-app.use(cookieParser());
-app.use(express.static(path.join(__dirname, 'public')));
-
-// Folders Setup
-const DATA_DIR = path.join(__dirname, 'data');
-const SESSIONS_DIR = path.join(__dirname, 'sessions');
-if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-if (!fs.existsSync(SESSIONS_DIR)) fs.mkdirSync(SESSIONS_DIR, { recursive: true });
-
-const ACCOUNTS_FILE = path.join(DATA_DIR, 'accounts.json');
-const QUEUE_FILE = path.join(DATA_DIR, 'queue.json');
-
-// ==========================================
-// 1. DATABASE LOKAL (ACCOUNTS & QUEUE)
-// ==========================================
-function getAccounts() {
-  try {
-    if (fs.existsSync(ACCOUNTS_FILE)) return JSON.parse(fs.readFileSync(ACCOUNTS_FILE, 'utf-8') || '[]');
-  } catch (e) {}
-  return [];
-}
-
-function saveAccounts(accounts) {
-  try {
-    fs.writeFileSync(ACCOUNTS_FILE, JSON.stringify(accounts, null, 2), 'utf-8');
-  } catch (e) {}
-}
-
-function getTasks() {
-  try {
-    if (fs.existsSync(QUEUE_FILE)) return JSON.parse(fs.readFileSync(QUEUE_FILE, 'utf-8') || '[]');
-  } catch (e) {}
-  return [];
-}
-
-function saveTasks(tasks) {
-  try {
-    fs.writeFileSync(QUEUE_FILE, JSON.stringify(tasks.slice(-200), null, 2), 'utf-8');
-  } catch (e) {}
-}
-
-function saveSession(accountId, data) {
-  fs.writeFileSync(path.join(SESSIONS_DIR, `${accountId}.json`), JSON.stringify(data, null, 2));
-}
-
-function loadSession(accountId) {
-  const p = path.join(SESSIONS_DIR, `${accountId}.json`);
-  if (!fs.existsSync(p)) return null;
-  try { return JSON.parse(fs.readFileSync(p, 'utf-8')); } catch (e) { return null; }
-}
-
-// ==========================================
-// 2. MESIN UTAMA SUNO API (OFFICIAL v6-mini)
-// ==========================================
-const SUNO_API_BASE = 'https://studio-api.prod.suno.com';
-
-async function keepAliveSession(session, accountId = 'acc_main') {
-  if (!session || !session.clientToken) return session;
-  try {
-    let sid = session.sessionId;
-    if (!sid && session.bearerToken) {
-      try {
-        const payload = JSON.parse(Buffer.from(session.bearerToken.split('.')[1], 'base64').toString('utf-8'));
-        sid = payload.sid;
-      } catch (e) {}
-    }
-    if (!sid) {
-      const cRes = await axios.get('https://auth.suno.com/v1/client?__clerk_api_version=2025-11-10', {
-        headers: { 'Authorization': session.clientToken, 'Cookie': session.cookies || '' },
-        timeout: 10000
+function getLoginHTML() {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Suno Studio - Login</title><script src="https://cdn.tailwindcss.com"></script>
+  <style> body { font-family: sans-serif; background: #09090b; } </style>
+</head>
+<body class="min-h-screen flex items-center justify-center p-4">
+  <div class="bg-zinc-900 border border-zinc-800 rounded-3xl p-8 w-full max-w-sm text-center shadow-2xl">
+    <div class="w-12 h-12 rounded-2xl bg-orange-600 text-white font-black text-xl flex items-center justify-center mx-auto mb-4">S</div>
+    <h1 class="text-xl font-bold text-white mb-6">Suno Studio</h1>
+    <form id="loginForm" class="space-y-4">
+      <input type="text" id="username" required class="w-full px-4 py-3 rounded-xl bg-zinc-800 border border-zinc-700 text-white text-sm focus:outline-none focus:border-orange-500" placeholder="admin">
+      <input type="password" id="password" required class="w-full px-4 py-3 rounded-xl bg-zinc-800 border border-zinc-700 text-white text-sm focus:outline-none focus:border-orange-500" placeholder="Password">
+      <div id="loginError" class="hidden text-red-400 text-xs"></div>
+      <button type="submit" id="btnSign" class="w-full py-3 rounded-xl bg-orange-600 hover:bg-orange-500 text-white font-bold text-sm transition">Sign In</button>
+    </form>
+  </div>
+  <script>
+    document.getElementById('loginForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const btn = document.getElementById('btnSign');
+      btn.disabled = true; btn.textContent = 'Checking...';
+      const res = await fetch('/admin/login', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: document.getElementById('username').value, password: document.getElementById('password').value })
       });
-      sid = cRes.data?.response?.last_active_session_id || cRes.data?.client?.last_active_session_id;
-    }
-    if (sid) {
-      const tRes = await axios.post(`https://auth.suno.com/v1/client/sessions/${sid}/tokens`, {}, {
-        headers: { 'Authorization': session.clientToken, 'Cookie': session.cookies || '' },
-        timeout: 10000
-      });
-      if (tRes.data?.jwt) {
-        session.bearerToken = tRes.data.jwt;
-        session.sessionId = sid;
-        saveSession(accountId, session);
-        logger.info('[Auth] Sesi token Clerk diperbarui otomatis');
+      const data = await res.json();
+      if (data.success) window.location.href = '/admin/dashboard';
+      else {
+        document.getElementById('loginError').textContent = data.error;
+        document.getElementById('loginError').classList.remove('hidden');
+        btn.disabled = false; btn.textContent = 'Sign In';
       }
-    }
-  } catch (err) {
-    logger.warn(`[Auth] Gagal auto-refresh token: ${err.message}`);
-  }
-  return session;
+    });
+  </script>
+</body>
+</html>`;
 }
 
-function getAxiosConfig(session) {
-  return {
-    headers: {
-      'Authorization': `Bearer ${session.bearerToken}`,
-      'Cookie': session.cookies || '',
-      'Content-Type': 'application/json',
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-      'Accept': '*/*',
-      'Origin': 'https://suno.com',
-      'Referer': 'https://suno.com/'
-    },
-    timeout: 45000
-  };
-}
+function getDashboardHTML() {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Suno AI Studio v6-mini</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="/socket.io/socket.io.js"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  <style>
+    body { font-family: system-ui, sans-serif; background-color: #0c0d12; }
+    .suno-card { background-color: #12131a; border: 1px solid #1f212c; }
+    .suno-input { background-color: #181922; border: 1px solid #242735; }
+    .suno-input:focus { border-color: #ff5e36; }
+    ::-webkit-scrollbar { width: 4px; height: 4px; }
+    ::-webkit-scrollbar-thumb { background: #262836; border-radius: 4px; }
+  </style>
+</head>
+<body class="text-zinc-200 min-h-screen flex flex-col">
 
-async function checkCreditsAPI(session) {
-  await keepAliveSession(session);
-  const config = getAxiosConfig(session);
-  const res = await axios.get(`${SUNO_API_BASE}/api/billing/info/`, config);
-  return res.data?.total_credits_left !== undefined ? res.data.total_credits_left : (res.data?.credits_left || 0);
-}
+  <!-- HEADER -->
+  <header class="bg-[#101117] border-b border-[#1c1e28] sticky top-0 z-40 px-4 lg:px-8 py-3.5 flex items-center justify-between">
+    <div class="flex items-center space-x-3">
+      <div class="w-9 h-9 rounded-xl bg-orange-600 flex items-center justify-center font-black text-white text-lg shadow-lg shadow-orange-600/30">S</div>
+      <div>
+        <h1 class="text-sm font-bold text-white tracking-wide">SUNO <span class="text-orange-500">STUDIO</span></h1>
+        <p class="text-[10px] text-zinc-500">Official v6-mini Engine</p>
+      </div>
+    </div>
+    
+    <div class="flex items-center space-x-3">
+      <div class="flex items-center px-3 py-1.5 rounded-full bg-[#181924] border border-[#242738] space-x-2 text-xs">
+        <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+        <span class="text-zinc-400">Credits:</span>
+        <span id="topCreditDisplay" class="text-orange-400 font-bold">0</span>
+      </div>
+      <button onclick="refreshAll()" class="p-2 rounded-xl bg-zinc-800/80 hover:bg-zinc-700 text-zinc-300 transition" title="Refresh Data"><i class="fas fa-sync-alt text-xs"></i></button>
+      <button onclick="toggleDrawer(true)" class="p-2 px-3 rounded-xl bg-orange-600 hover:bg-orange-500 text-white font-bold text-xs flex items-center space-x-1.5 transition">
+        <i class="fas fa-bars"></i><span class="hidden sm:inline">Menu</span>
+      </button>
+    </div>
+  </header>
 
-async function getFeedAPI(session) {
-  const config = getAxiosConfig(session);
-  const res = await axios.get(`${SUNO_API_BASE}/api/feed/`, config);
-  const clips = res.data || [];
-  return clips.map(c => {
-    const durationSec = Math.floor(c.metadata?.duration || 0);
-    const mins = Math.floor(durationSec / 60);
-    const secs = durationSec % 60;
-    return {
-      id: c.id,
-      audioId: c.id,
-      title: c.title || 'Untitled Song',
-      status: c.status,
-      audioUrl: c.audio_url || `https://audiopipe.suno.ai/track/${c.id}.mp3`,
-      imageUrl: c.image_url || c.image_large_url || `https://cdn1.suno.ai/image_${c.id}.png`,
-      tags: c.metadata?.tags || 'Music',
-      model: c.model_name || 'v6-mini',
-      duration: durationSec > 0 ? `${mins}:${secs.toString().padStart(2, '0')}` : '3:00'
-    };
-  });
-}
+  <!-- DRAWER MENU KANAN ATAS -->
+  <div id="drawerOverlay" onclick="toggleDrawer(false)" class="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 hidden"></div>
+  <div id="sideDrawer" class="fixed top-0 right-0 bottom-0 w-72 bg-[#12131c] border-l border-[#202230] z-50 transform translate-x-full transition-transform duration-300 flex flex-col p-6 shadow-2xl">
+    <div class="flex items-center justify-between pb-6 border-b border-[#202230]">
+      <h3 class="text-sm font-bold text-white uppercase tracking-wider">Menu Fitur</h3>
+      <button onclick="toggleDrawer(false)" class="text-zinc-400 hover:text-white"><i class="fas fa-times text-lg"></i></button>
+    </div>
+    <div class="space-y-2 mt-6 flex-1 text-sm font-semibold">
+      <button onclick="switchTab('dashboard')" class="w-full p-3 rounded-xl hover:bg-zinc-800/70 text-left flex items-center space-x-3 text-zinc-300 hover:text-white">
+        <i class="fas fa-gauge-high text-orange-500 w-5"></i><span>Dashboard & Saldo</span>
+      </button>
+      <button onclick="switchTab('generator')" class="w-full p-3 rounded-xl hover:bg-zinc-800/70 text-left flex items-center space-x-3 text-zinc-300 hover:text-white">
+        <i class="fas fa-wand-magic-sparkles text-orange-500 w-5"></i><span>Song Studio (Generate)</span>
+      </button>
+      <button onclick="switchTab('queue')" class="w-full p-3 rounded-xl hover:bg-zinc-800/70 text-left flex items-center space-x-3 text-zinc-300 hover:text-white">
+        <i class="fas fa-list-check text-orange-500 w-5"></i><span>Task Queue</span>
+      </button>
+    </div>
+    <div class="pt-6 border-t border-[#202230]">
+      <a href="/admin/logout" class="w-full p-3 rounded-xl bg-red-600/10 text-red-400 hover:bg-red-600 hover:text-white transition flex items-center justify-center space-x-2 text-xs font-bold">
+        <i class="fas fa-sign-out-alt"></i><span>Logout</span>
+      </a>
+    </div>
+  </div>
 
-async function generateSongAPI(session, options) {
-  const config = getAxiosConfig(session);
-  const { title, style, lyrics, instrumental } = options;
+  <main class="max-w-[1500px] w-full mx-auto px-4 lg:px-8 py-6 flex-1">
 
-  // Hapus parameter mv agar Suno otomatis menggunakan model default resmi akun Anda (v6-mini)
-  let payload = {
-    make_instrumental: !!instrumental
-  };
+    <!-- VIEW 1: DASHBOARD & AKUN -->
+    <div id="view-dashboard">
+      <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+        <div class="suno-card rounded-2xl p-4">
+          <span class="text-[11px] text-zinc-500 uppercase tracking-wider font-semibold">Saldo Kredit</span>
+          <div id="statTotalCredits" class="text-2xl font-black text-orange-400 mt-1">0</div>
+        </div>
+        <div class="suno-card rounded-2xl p-4">
+          <span class="text-[11px] text-zinc-500 uppercase tracking-wider font-semibold">Status Sesi</span>
+          <div id="statActiveSessions" class="text-2xl font-black text-emerald-400 mt-1">0</div>
+        </div>
+        <div class="suno-card rounded-2xl p-4">
+          <span class="text-[11px] text-zinc-500 uppercase tracking-wider font-semibold">Total Akun</span>
+          <div id="statTotalAccounts" class="text-2xl font-black text-white mt-1">0</div>
+        </div>
+        <div class="suno-card rounded-2xl p-4">
+          <span class="text-[11px] text-zinc-500 uppercase tracking-wider font-semibold">Lagu di Suno</span>
+          <div id="statTotalSongs" class="text-2xl font-black text-indigo-400 mt-1">0</div>
+        </div>
+      </div>
 
-  if (instrumental) {
-    payload.prompt = '';
-    payload.tags = style || 'Instrumental';
-    payload.title = title || 'Untitled Instrumental';
-  } else if (lyrics || style || title) {
-    payload.prompt = lyrics || 'Song lyrics';
-    payload.tags = style || 'Pop';
-    payload.title = title || 'Untitled Song';
-  } else {
-    payload.gpt_description_prompt = title || style || 'Song';
-  }
+      <div class="suno-card rounded-2xl p-5 mb-6">
+        <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4">
+          <div>
+            <h2 class="text-sm font-bold text-white uppercase tracking-wider">Manajemen Akun Suno</h2>
+            <p class="text-xs text-zinc-500">Akun tersimpan aman dan tidak akan hilang</p>
+          </div>
+          <button onclick="openImportCookieModal()" class="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition flex items-center space-x-2">
+            <i class="fas fa-cookie-bite"></i><span>Import Cookie Baru</span>
+          </button>
+        </div>
 
-  const res = await axios.post(`${SUNO_API_BASE}/api/generate/v2/`, payload, config);
-  return res.data;
-}
+        <div class="overflow-x-auto w-full rounded-xl border border-[#202230]">
+          <table class="w-full text-left text-xs whitespace-nowrap">
+            <thead class="bg-[#171822] text-zinc-400 border-b border-[#202230]">
+              <tr>
+                <th class="p-3.5">ID Akun</th>
+                <th class="p-3.5">Email Suno</th>
+                <th class="p-3.5 text-center">Status</th>
+                <th class="p-3.5 text-center">Kredit</th>
+                <th class="p-3.5 text-center">Aksi</th>
+              </tr>
+            </thead>
+            <tbody id="accountsTableBody" class="divide-y divide-[#1e202c]"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
 
-// ==========================================
-// 3. MESIN STREAMING & DOWNLOAD MP3 LOKAL
-// ==========================================
-app.get('/api/v1/audio/:audioId', async (req, res) => {
-  const { audioId } = req.params;
-  const { download, title } = req.query;
+    <!-- VIEW 2: SONG STUDIO (MURNI V6-MINI) -->
+    <div id="view-generator" class="hidden">
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        <div class="lg:col-span-5 suno-card rounded-2xl p-5 shadow-2xl">
+          <div class="flex items-center justify-between mb-4">
+            <h2 class="text-sm font-bold text-white uppercase tracking-wider flex items-center space-x-2">
+              <i class="fas fa-sliders text-orange-500"></i>
+              <span>Song Creator</span>
+            </h2>
+            <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">V6-MINI READY</span>
+          </div>
 
-  try {
-    const streamUrl = `https://cdn1.suno.ai/${audioId}.mp3`;
-    const safeTitle = (title || 'suno_music').replace(/[^a-zA-Z0-9_\-\s]/g, '').trim();
+          <form id="songGenForm" class="space-y-4">
+            <div>
+              <label class="block text-xs font-semibold text-zinc-400 mb-1">Model Version</label>
+              <div class="w-full px-3.5 py-2.5 rounded-xl suno-input text-white text-xs font-bold bg-[#181922]">
+                ✨ v6-mini (Model Resmi Akun Free Suno AI)
+              </div>
+            </div>
 
-    const headers = {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-      'Referer': 'https://suno.com/',
-      'Origin': 'https://suno.com'
-    };
+            <div>
+              <label class="block text-xs font-semibold text-zinc-400 mb-1">Judul Lagu (Title)</label>
+              <input type="text" id="songTitle" required class="w-full px-3.5 py-2.5 rounded-xl suno-input text-white placeholder-zinc-600 text-xs focus:outline-none" placeholder="Contoh: Firda">
+            </div>
 
-    if (req.headers.range) {
-      headers['Range'] = req.headers.range;
-    }
+            <div>
+              <label class="block text-xs font-semibold text-zinc-400 mb-1">Style / Genre Musik</label>
+              <input type="text" id="songStyle" required class="w-full px-3.5 py-2.5 rounded-xl suno-input text-white placeholder-zinc-600 text-xs focus:outline-none" placeholder="Contoh: DJ sholawat style Indonesia slow bass">
+            </div>
 
-    const audioRes = await axios({
-      method: 'GET',
-      url: streamUrl,
-      responseType: 'stream',
-      headers: headers,
-      timeout: 45000,
-      validateStatus: (status) => status >= 200 && status < 400
+            <div>
+              <label class="block text-xs font-semibold text-zinc-400 mb-1">Lirik atau Deskripsi Lagu</label>
+              <textarea id="songLyrics" rows="4" class="w-full px-3.5 py-2.5 rounded-xl suno-input text-white placeholder-zinc-600 text-xs focus:outline-none" placeholder="Lirik lagu..."></textarea>
+            </div>
+
+            <div class="flex items-center space-x-2 pt-1">
+              <input type="checkbox" id="songInstrumental" class="rounded bg-zinc-800 border-zinc-700 text-orange-600 focus:ring-0">
+              <label for="songInstrumental" class="text-xs text-zinc-300 select-none">Instrumental (Musik Saja Tanpa Vokal)</label>
+            </div>
+
+            <button type="submit" id="btnGenSong" class="w-full py-3.5 rounded-xl bg-orange-600 hover:bg-orange-500 text-white font-bold text-xs uppercase tracking-wider transition shadow-lg shadow-orange-600/25 flex items-center justify-center space-x-2">
+              <i class="fas fa-wand-magic-sparkles"></i>
+              <span>Generate Song Now</span>
+            </button>
+          </form>
+        </div>
+
+        <div class="lg:col-span-7">
+          <div class="flex items-center justify-between mb-4">
+            <h2 class="text-sm font-bold text-white uppercase tracking-wider flex items-center space-x-2">
+              <i class="fas fa-compact-disc text-orange-500"></i>
+              <span>Generated Library</span>
+            </h2>
+          </div>
+          <div id="libraryContainer" class="space-y-3"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- VIEW 3: TASK QUEUE -->
+    <div id="view-queue" class="hidden">
+      <div class="suno-card rounded-2xl p-5">
+        <h2 class="text-sm font-bold text-white uppercase tracking-wider mb-4">Task Queue</h2>
+        <div class="overflow-x-auto w-full rounded-xl border border-[#202230]">
+          <table class="w-full text-left text-xs whitespace-nowrap">
+            <thead class="bg-[#171822] text-zinc-400 border-b border-[#202230]">
+              <tr>
+                <th class="p-3.5">Judul</th>
+                <th class="p-3.5 text-center">Status</th>
+                <th class="p-3.5 text-center">Aksi / Putar</th>
+              </tr>
+            </thead>
+            <tbody id="queueTableBody" class="divide-y divide-[#1e202c]"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- POPUP MINI PLAYER (DIRECT CDN STREAMING) -->
+  <div id="miniPlayerModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+    <div class="suno-card rounded-3xl p-6 w-full max-w-sm text-center shadow-2xl relative border border-orange-500/30">
+      <button onclick="closeMiniPlayer()" class="absolute top-4 right-4 text-zinc-400 hover:text-white p-2"><i class="fas fa-times text-lg"></i></button>
+      <img id="mpCover" src="" class="w-40 h-40 rounded-2xl mx-auto object-cover mb-4 shadow-xl border border-zinc-800">
+      <h3 id="mpTitle" class="text-sm font-bold text-white truncate">Title</h3>
+      <p id="mpTags" class="text-xs text-zinc-400 truncate mt-1">Tags</p>
+      <div class="mt-4"><audio id="mpAudio" controls class="w-full h-10"></audio></div>
+      <div class="mt-4 pt-4 border-t border-[#202230] flex items-center justify-between text-xs">
+        <span id="mpAudioId" class="font-mono text-[10px] text-zinc-500">ID: -</span>
+        <a id="mpDownload" href="#" target="_blank" download="song.mp3" class="px-3.5 py-2 bg-orange-600 hover:bg-orange-500 text-white rounded-xl font-bold flex items-center space-x-1.5 transition">
+          <i class="fas fa-download"></i><span>Download MP3</span>
+        </a>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL IMPORT COOKIE -->
+  <div id="importCookieModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+    <div class="suno-card rounded-2xl p-6 w-full max-w-md">
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="text-sm font-bold text-white">Import Cookie Suno (Kiwi Browser)</h3>
+        <button onclick="closeModal('importCookieModal')" class="text-zinc-500 hover:text-white"><i class="fas fa-times"></i></button>
+      </div>
+      <p class="text-[11px] text-zinc-400 mb-3">Pastikan Anda sudah me-refresh tab Suno di Kiwi sebelum meng-export cookie baru!</p>
+      <form id="importCookieForm" class="space-y-4">
+        <div>
+          <label class="block text-xs font-semibold text-zinc-400 mb-1">Email Akun Suno</label>
+          <input type="email" id="cookieEmail" required class="w-full px-3.5 py-2.5 rounded-xl suno-input text-white text-xs focus:outline-none" placeholder="user@gmail.com">
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-zinc-400 mb-1">Paste JSON Cookie</label>
+          <textarea id="cookieJsonRaw" rows="6" required class="w-full px-3.5 py-2.5 rounded-xl suno-input text-white text-xs font-mono focus:outline-none" placeholder='[ { "name": "__session", "value": "..." } ]'></textarea>
+        </div>
+        <button type="submit" id="btnImportSubmit" class="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition">Aktifkan & Tes Akun</button>
+      </form>
+    </div>
+  </div>
+
+  <div id="toastContainer" class="fixed top-4 right-4 z-50 space-y-2 select-text"></div>
+
+  <script>
+    const socket = io();
+    let accounts = [];
+    let tasks = [];
+    let libraryClips = [];
+
+    socket.on('accounts:updated', (data) => { accounts = data; renderAccounts(); });
+    socket.on('tasks:updated', (data) => { tasks = data; renderQueueTable(); });
+    
+    socket.on('songs:loaded', (data) => {
+      libraryClips = data || [];
+      renderLibrary();
+      renderQueueTable();
+      document.getElementById('statTotalSongs').textContent = libraryClips.length;
     });
 
-    res.status(audioRes.status);
-    if (audioRes.headers['content-range']) {
-      res.setHeader('Content-Range', audioRes.headers['content-range']);
+    socket.on('account:credits', (data) => {
+      document.getElementById('topCreditDisplay').textContent = data.credits;
+      document.getElementById('statTotalCredits').textContent = data.credits;
+    });
+
+    socket.on('task:completed', (data) => {
+      showToast('SUCCESS', '2 Lagu baru siap diputar!', 'success');
+      refreshAll();
+    });
+
+    socket.on('notification', (data) => {
+      showToast(data.type.toUpperCase(), data.message, data.type);
+    });
+
+    function renderAccounts() {
+      const tbody = document.getElementById('accountsTableBody');
+      if (!accounts.length) {
+        tbody.innerHTML = '<tr><td colspan="5" class="text-center py-6 text-zinc-500">Belum ada akun. Klik Import Cookie di atas!</td></tr>';
+        document.getElementById('statTotalAccounts').textContent = '0';
+        document.getElementById('statActiveSessions').textContent = '0';
+        document.getElementById('topCreditDisplay').textContent = '0';
+        document.getElementById('statTotalCredits').textContent = '0';
+        return;
+      }
+      tbody.innerHTML = accounts.map(acc => \`
+        <tr class="hover:bg-[#181a24] transition">
+          <td class="p-3.5 font-mono text-zinc-400 font-bold">\${acc.id}</td>
+          <td class="p-3.5 text-white">\${acc.email}</td>
+          <td class="p-3.5 text-center">
+            <span class="\${acc.statusCookie === 'active' ? 'text-emerald-400 bg-emerald-500/10' : 'text-red-400 bg-red-500/10'} font-bold px-2 py-1 rounded-full text-[10px]">
+              \${acc.statusCookie === 'active' ? '🟢 Active' : '🔴 Expired'}
+            </span>
+          </td>
+          <td class="p-3.5 text-center font-bold text-orange-400">\${acc.creditsLeft || 0}</td>
+          <td class="p-3.5 text-center">
+            <button onclick="checkCredits('\${acc.id}')" class="px-2.5 py-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg text-xs mr-2"><i class="fas fa-coins mr-1"></i>Cek</button>
+            <button onclick="deleteAccountDirect('\${acc.id}')" class="px-2.5 py-1 bg-red-600 hover:bg-red-500 text-white rounded-lg text-xs font-bold transition"><i class="fas fa-trash"></i></button>
+          </td>
+        </tr>
+      \`).join('');
+
+      document.getElementById('statTotalAccounts').textContent = accounts.length;
+      document.getElementById('statActiveSessions').textContent = '1';
+      document.getElementById('topCreditDisplay').textContent = accounts[0].creditsLeft || 0;
+      document.getElementById('statTotalCredits').textContent = accounts[0].creditsLeft || 0;
     }
-    if (audioRes.headers['content-length']) {
-      res.setHeader('Content-Length', audioRes.headers['content-length']);
-    }
-    res.setHeader('Content-Type', 'audio/mpeg');
-    res.setHeader('Accept-Ranges', 'bytes');
 
-    if (download === 'true') {
-      res.setHeader('Content-Disposition', `attachment; filename="${safeTitle || 'song'}.mp3"`);
-    } else {
-      res.setHeader('Content-Disposition', 'inline');
-    }
-
-    return audioRes.data.pipe(res);
-  } catch (err) {
-    res.status(404).send('Audio tidak ditemukan atau sedang diproses');
-  }
-});
-
-// Admin Route
-const adminRoutes = require('./routes/admin');
-app.use('/admin', adminRoutes);
-
-app.get('/', (req, res) => { res.redirect('/admin/dashboard'); });
-
-// ==========================================
-// 4. WEBSOCKET REAL-TIME ENGINE
-// ==========================================
-io.on('connection', async (socket) => {
-  socket.emit('accounts:updated', getAccounts());
-  socket.emit('tasks:updated', getTasks().slice(0, 50));
-
-  const accounts = getAccounts();
-  if (accounts.length > 0) {
-    const session = loadSession(accounts[0].id);
-    if (session) {
-      try {
-        const songs = await getFeedAPI(session);
-        socket.emit('songs:loaded', songs);
-      } catch (e) {}
-    }
-  }
-
-  // IMPORT COOKIE LENGKAP
-  socket.on('account:importCookie', async (data, callback) => {
-    try {
-      const { email, cookieJson } = data;
-      const cookiesArray = typeof cookieJson === 'string' ? JSON.parse(cookieJson) : cookieJson;
-
-      const sessionCookie = cookiesArray.find(c => c.name === '__session' || c.name.startsWith('__session_'));
-      if (!sessionCookie || !sessionCookie.value) {
-        throw new Error('Cookie __session tidak ditemukan di dalam JSON!');
+    function renderLibrary() {
+      const c = document.getElementById('libraryContainer');
+      if (!libraryClips.length) {
+        c.innerHTML = '<div class="suno-card rounded-2xl p-12 text-center text-zinc-500"><i class="fas fa-music text-4xl mb-3 block opacity-30"></i><p class="text-xs">Belum ada lagu. Buat lagu di form sebelah kiri!</p></div>';
+        return;
       }
 
-      const clientCookie = cookiesArray.find(c => c.name === '__client' || c.name.startsWith('__client_'));
-      const clientToken = clientCookie ? clientCookie.value : null;
-
-      let sessionId = null;
-      try {
-        const payload = JSON.parse(Buffer.from(sessionCookie.value.split('.')[1], 'base64').toString('utf-8'));
-        sessionId = payload.sid || null;
-      } catch (e) {}
-
-      const bearerToken = sessionCookie.value;
-      const cookiesHeader = cookiesArray.map(c => `${c.name}=${c.value}`).join('; ');
-
-      const accountId = 'acc_main';
-      const sessionData = { bearerToken, clientToken, sessionId, cookies: cookiesHeader };
-
-      // TES VALIDITAS TOKEN SEBELUM SIMPAN!
-      let credits = 0;
-      try {
-        credits = await checkCreditsAPI(sessionData);
-      } catch (errAuth) {
-        throw new Error('Cookie sudah KADALUARSA! Buka suno.com di Kiwi, REFRESH halamannya, lalu Export ulang!');
-      }
-
-      saveSession(accountId, sessionData);
-
-      const updatedAccounts = [{
-        id: accountId,
-        email: email,
-        creditsLeft: credits,
-        statusCookie: 'active',
-        lastLogin: new Date().toISOString()
-      }];
-
-      saveAccounts(updatedAccounts);
-
-      io.emit('accounts:updated', updatedAccounts);
-      io.emit('account:credits', { id: accountId, credits });
-      io.emit('notification', { type: 'success', message: `Token Aktif! Saldo Resmi: ${credits} Kredit` });
-
-      const songs = await getFeedAPI(sessionData);
-      io.emit('songs:loaded', songs);
-
-      if (callback) callback({ success: true, credits });
-    } catch (err) {
-      if (callback) callback({ success: false, error: err.message });
+      c.innerHTML = libraryClips.map(clip => \`
+        <div class="suno-card rounded-2xl p-3.5 flex items-center justify-between hover:bg-[#181924] transition">
+          <div class="flex items-center space-x-3.5 overflow-hidden">
+            <div class="relative w-14 h-14 rounded-xl overflow-hidden shrink-0 cursor-pointer shadow-md" onclick="openMiniPlayer('\${clip.id}', '\${clip.title}', '\${clip.tags}', '\${clip.imageUrl}')">
+              <img src="\${clip.imageUrl}" class="w-full h-full object-cover">
+              <div class="absolute inset-0 bg-black/40 flex items-center justify-center">
+                <div class="w-7 h-7 rounded-full bg-white text-zinc-900 flex items-center justify-center pl-0.5 shadow-lg">
+                  <i class="fas fa-play text-[10px]"></i>
+                </div>
+              </div>
+            </div>
+            <div class="overflow-hidden">
+              <div class="flex items-center space-x-2">
+                <h4 class="text-xs font-bold text-white truncate max-w-[180px] sm:max-w-[260px]">\${clip.title}</h4>
+                <span class="text-[9px] font-bold px-1.5 py-0.2 rounded bg-zinc-800 text-zinc-400">v6-mini</span>
+              </div>
+              <p class="text-[11px] text-zinc-400 truncate mt-0.5">\${clip.tags}</p>
+              <span class="text-[10px] text-zinc-500"><i class="far fa-clock mr-1"></i>\${clip.duration || '3:00'}</span>
+            </div>
+          </div>
+          <div class="flex items-center space-x-2 shrink-0">
+            <button onclick="openMiniPlayer('\${clip.id}', '\${clip.title}', '\${clip.tags}', '\${clip.imageUrl}')" class="p-2.5 rounded-xl bg-orange-600/10 text-orange-400 hover:bg-orange-600 hover:text-white text-xs transition">
+              <i class="fas fa-play"></i>
+            </button>
+            <a href="https://cdn1.suno.ai/\${clip.id}.mp3" target="_blank" download="\${encodeURIComponent(clip.title)}.mp3" class="p-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs transition" title="Download MP3">
+              <i class="fas fa-download"></i>
+            </a>
+          </div>
+        </div>
+      \`).join('');
     }
-  });
 
-  // Background Auto-Refresh Setiap 30 Menit Agar Tidak Pernah Kedaluwarsa
-  cron.schedule('*/30 * * * *', async () => {
-    try {
-      const accounts = getAccounts();
-      if (accounts.length > 0) {
-        const session = loadSession(accounts[0].id);
-        if (session) {
-          await keepAliveSession(session, accounts[0].id);
-        }
+    function renderQueueTable() {
+      const tbody = document.getElementById('queueTableBody');
+      if (!tasks.length) {
+        tbody.innerHTML = '<tr><td colspan="3" class="text-center py-6 text-zinc-500">Belum ada antrean tugas.</td></tr>';
+        return;
       }
-    } catch (e) {}
-  });
+      tbody.innerHTML = tasks.map(t => \`
+        <tr class="hover:bg-[#181a24] transition">
+          <td class="p-3.5 font-bold text-white">\${t.title}</td>
+          <td class="p-3.5 text-center"><span class="text-emerald-400 font-bold bg-emerald-500/10 px-2 py-0.5 rounded text-[10px]">\${t.status}</span></td>
+          <td class="p-3.5 text-center">
+            \${t.result ? \`<button onclick="openMiniPlayer('\${t.result[0].id}', '\${t.result[0].title}', '\${t.result[0].tags}', '\${t.result[0].imageUrl}')" class="px-3 py-1 bg-orange-600 text-white rounded-lg text-xs font-bold"><i class="fas fa-play mr-1"></i>Play</button>\` : '<span class=\"text-zinc-500\">Memproses...</span>'}
+          </td>
+        </tr>
+      \`).join('');
+    }
 
-  // BIKIN LAGU RESMI
-  socket.on('song:generate', async (data, callback) => {
-    try {
-      const accounts = getAccounts();
-      if (!accounts.length) throw new Error('Belum ada akun Suno aktif. Import cookie dulu!');
+    function openMiniPlayer(audioId, title, tags, cover) {
+      document.getElementById('mpTitle').textContent = title;
+      document.getElementById('mpTags').textContent = tags;
+      document.getElementById('mpCover').src = cover;
+      document.getElementById('mpAudioId').textContent = 'ID: ' + audioId;
+      
+      const directCdnUrl = 'https://cdn1.suno.ai/' + audioId + '.mp3';
+      const dlBtn = document.getElementById('mpDownload');
+      dlBtn.href = directCdnUrl;
+      dlBtn.target = '_blank';
+      dlBtn.setAttribute('download', (title || 'song') + '.mp3');
 
-      const session = loadSession(accounts[0].id);
-      if (!session) throw new Error('Sesi tidak ditemukan. Import cookie ulang!');
+      const audio = document.getElementById('mpAudio');
+      audio.src = directCdnUrl;
+      audio.load();
 
-      io.emit('notification', { type: 'info', message: 'Membuat lagu dengan model resmi v6-mini...' });
+      const modal = document.getElementById('miniPlayerModal');
+      modal.classList.remove('hidden');
+      modal.classList.add('flex');
+      audio.play().catch(e => {});
+    }
 
-      const resSuno = await generateSongAPI(session, data);
-      if (!resSuno || !resSuno.clips) throw new Error('Suno menolak request. Cek saldo akun.');
+    function closeMiniPlayer() {
+      const audio = document.getElementById('mpAudio');
+      audio.pause();
+      document.getElementById('miniPlayerModal').classList.add('hidden');
+      document.getElementById('miniPlayerModal').classList.remove('flex');
+    }
 
-      const taskId = uuidv4();
-      const clipIds = resSuno.clips.map(c => c.id);
+    function toggleDrawer(open) {
+      document.getElementById('drawerOverlay').classList.toggle('hidden', !open);
+      document.getElementById('sideDrawer').classList.toggle('translate-x-full', !open);
+    }
 
-      const tasks = getTasks();
-      tasks.unshift({
-        taskId,
-        clipIds,
-        title: data.title || 'Untitled',
-        status: 'processing',
-        createdAt: new Date().toISOString()
+    function switchTab(view) {
+      ['dashboard', 'generator', 'queue'].forEach(v => {
+        document.getElementById(\`view-\${v}\`).classList.toggle('hidden', v !== view);
       });
-      saveTasks(tasks);
-
-      io.emit('tasks:updated', tasks.slice(0, 50));
-      if (callback) callback({ success: true });
-
-      // Polling hasil klip di latar belakang
-      let attempts = 0;
-      const interval = setInterval(async () => {
-        attempts++;
-        if (attempts > 30) { clearInterval(interval); return; }
-        try {
-          const freshSongs = await getFeedAPI(session);
-          const found = freshSongs.filter(s => clipIds.includes(s.id));
-          const allDone = found.length > 0 && found.every(s => s.status === 'complete' || (s.status === 'streaming' && s.audioUrl));
-          if (allDone) {
-            clearInterval(interval);
-            const currentTasks = getTasks();
-            const tIndex = currentTasks.findIndex(t => t.taskId === taskId);
-            if (tIndex !== -1) {
-              currentTasks[tIndex].status = 'completed';
-              currentTasks[tIndex].result = found;
-              saveTasks(currentTasks);
-            }
-            io.emit('tasks:updated', currentTasks.slice(0, 50));
-            io.emit('songs:loaded', freshSongs);
-            io.emit('task:completed', { taskId, result: found });
-
-            const newCredits = await checkCreditsAPI(session);
-            accounts[0].creditsLeft = newCredits;
-            saveAccounts(accounts);
-            io.emit('account:credits', { id: accounts[0].id, credits: newCredits });
-          }
-        } catch (e) {}
-      }, 5000);
-
-    } catch (err) {
-      const errMsg = err.response?.data?.detail || err.message;
-      io.emit('notification', { type: 'error', message: `Gagal: ${errMsg}` });
-      if (callback) callback({ success: false, error: errMsg });
+      toggleDrawer(false);
     }
-  });
 
-  // CEK SALDO MANUAL
-  socket.on('account:checkCredits', async (data, callback) => {
-    try {
-      const accounts = getAccounts();
-      if (!accounts.length) throw new Error('Tidak ada akun.');
-      const session = loadSession(accounts[0].id);
-      const credits = await checkCreditsAPI(session);
-      accounts[0].creditsLeft = credits;
-      accounts[0].statusCookie = 'active';
-      saveAccounts(accounts);
-      io.emit('accounts:updated', accounts);
-      io.emit('account:credits', { id: accounts[0].id, credits });
-      io.emit('notification', { type: 'info', message: `Saldo Saat Ini: ${credits} Kredit` });
-      if (callback) callback({ success: true, credits });
-    } catch (e) {
-      const accounts = getAccounts();
-      if (accounts.length > 0) {
-        accounts[0].statusCookie = 'expired';
-        saveAccounts(accounts);
-        io.emit('accounts:updated', accounts);
-      }
-      if (callback) callback({ success: false, error: e.message });
-    }
-  });
+    document.getElementById('songGenForm').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const btn = document.getElementById('btnGenSong');
+      btn.disabled = true;
+      btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Generating v6-mini...';
 
-  // REFRESH ALL
-  socket.on('refresh:all', async (data, callback) => {
-    try {
-      const accounts = getAccounts();
-      if (accounts.length > 0) {
-        const session = loadSession(accounts[0].id);
-        if (session) {
-          const credits = await checkCreditsAPI(session);
-          accounts[0].creditsLeft = credits;
-          saveAccounts(accounts);
-          const songs = await getFeedAPI(session);
-          io.emit('accounts:updated', accounts);
-          io.emit('account:credits', { id: accounts[0].id, credits });
-          io.emit('songs:loaded', songs);
+      socket.emit('song:generate', {
+        title: document.getElementById('songTitle').value,
+        style: document.getElementById('songStyle').value,
+        lyrics: document.getElementById('songLyrics').value,
+        instrumental: document.getElementById('songInstrumental').checked
+      }, (res) => {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-wand-magic-sparkles mr-2"></i>Generate Song Now';
+        if (res.success) {
+          showToast('PROSES', '2 Lagu v6-mini sedang diproduksi oleh Suno AI...', 'info');
+        } else {
+          showToast('ERROR', res.error, 'error');
         }
-      }
-      io.emit('tasks:updated', getTasks().slice(0, 50));
-      io.emit('notification', { type: 'success', message: 'Semua data dan lagu berhasil disinkronkan!' });
-      if (callback) callback({ success: true });
-    } catch (e) {
-      if (callback) callback({ success: false, error: e.message });
+      });
+    });
+
+    document.getElementById('importCookieForm').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const btn = document.getElementById('btnImportSubmit');
+      btn.disabled = true;
+      btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Memverifikasi...';
+
+      socket.emit('account:importCookie', {
+        email: document.getElementById('cookieEmail').value,
+        cookieJson: document.getElementById('cookieJsonRaw').value
+      }, (res) => {
+        btn.disabled = false;
+        btn.innerHTML = 'Aktifkan & Tes Akun';
+        if (res.success) {
+          closeModal('importCookieModal');
+          document.getElementById('importCookieForm').reset();
+          showToast('SUCCESS', 'Akun AKTIF! Saldo: ' + res.credits + ' Kredit', 'success');
+        } else {
+          showToast('ERROR', res.error, 'error');
+        }
+      });
+    });
+
+    function checkCredits(id) { socket.emit('account:checkCredits', { id }); }
+    function deleteAccountDirect(id) { socket.emit('account:delete', { id }); }
+    function refreshAll() { socket.emit('refresh:all', {}); }
+    function openImportCookieModal() { document.getElementById('importCookieModal').classList.remove('hidden'); document.getElementById('importCookieModal').classList.add('flex'); }
+    function closeModal(id) { document.getElementById(id).classList.add('hidden'); document.getElementById(id).classList.remove('flex'); }
+
+    function showToast(title, message, type = 'info') {
+      const c = document.getElementById('toastContainer');
+      const toast = document.createElement('div');
+      toast.className = \`p-3.5 rounded-xl shadow-2xl border text-xs max-w-sm \${type === 'success' ? 'bg-[#121c16] border-emerald-500/40 text-emerald-300' : type === 'error' ? 'bg-[#211214] border-red-500/40 text-red-300' : 'bg-[#1e1713] border-orange-500/40 text-orange-300'}\`;
+      toast.innerHTML = \`<div class="font-bold">\${title}</div><div class="mt-0.5 text-zinc-400">\${message}</div>\`;
+      c.appendChild(toast);
+      setTimeout(() => toast.remove(), 5000);
     }
-  });
+  </script>
+</body>
+</html>`;
+}
 
-  socket.on('account:delete', (data, callback) => {
-    saveAccounts([]);
-    io.emit('accounts:updated', []);
-    io.emit('account:credits', { id: 'acc_main', credits: 0 });
-    io.emit('notification', { type: 'info', message: 'Akun berhasil dihapus.' });
-    if (callback) callback({ success: true });
-  });
-});
-
-const PORT = process.env.PORT || 3000;
-server.listen(PORT, '0.0.0.0', () => {
-  logger.info(`🚀 Suno Studio berjalan di port ${PORT}`);
-});
+module.exports = router;
