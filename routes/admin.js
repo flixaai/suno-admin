@@ -553,25 +553,26 @@ function getDashboardHTML() {
       }).join('');
     }
 
-    // Pemutar Audio Langsung & Download
+    var currentActiveDirectUrl = '';
+
+    // Pemutar Audio Langsung & Download (Sistem MasterAudio.Pro)
     function openMiniPlayer(audioId, title, tags, cover, audioUrl) {
       currentActiveAudioId = audioId;
       currentActiveTitle = title || 'song';
+      currentActiveDirectUrl = audioUrl || ('https://d2lwuy8qc234o3.cloudfront.net/1/clip/' + audioId + '.m4a');
 
       document.getElementById('mpTitle').textContent = title;
       document.getElementById('mpTags').textContent = tags;
       document.getElementById('mpCover').src = cover;
 
-      var streamApiUrl = '/api/v1/audio/' + audioId;
-      var cleanTitle = encodeURIComponent(currentActiveTitle);
-
-      // Download M4A Asli Langsung Ke HP
       var dlM4A = document.getElementById('mpDownloadM4A');
-      dlM4A.href = streamApiUrl + '?download=true&title=' + cleanTitle;
+      dlM4A.onclick = function(e) {
+        e.preventDefault();
+        downloadDirectM4A();
+      };
 
-      // Play Audio Melalui Server Proxy Stream (Durasi 3:29 Terbaca Normal)
       var audio = document.getElementById('mpAudio');
-      audio.src = streamApiUrl;
+      audio.src = currentActiveDirectUrl;
       audio.load();
 
       openModal('miniPlayerModal');
@@ -584,9 +585,30 @@ function getDashboardHTML() {
       closeModal('miniPlayerModal');
     }
 
-    // KONVERSI KE MP3 MURNI 320 KBPS DI DALAM BROWSER (SEPERTI MASTERAUDIO.PRO)
+    // DOWNLOAD M4A ASLI LANGSUNG DARI BROWSER (TANPA LEWAT SERVER)
+    async function downloadDirectM4A() {
+      if (!currentActiveDirectUrl) return;
+      showToast('PROSES', 'Mengunduh file audio M4A asli...', 'info');
+      try {
+        var resp = await fetch(currentActiveDirectUrl);
+        var blob = await resp.blob();
+        var blobUrl = URL.createObjectURL(blob);
+        var a = document.createElement('a');
+        a.href = blobUrl;
+        a.download = currentActiveTitle + '.m4a';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(blobUrl);
+        showToast('BERHASIL', 'M4A berhasil disimpan ke folder Download!', 'success');
+      } catch (err) {
+        window.open(currentActiveDirectUrl, '_blank');
+      }
+    }
+
+    // KONVERSI KE MP3 MURNI 320 KBPS DI BROWSER DARI DATA ASLI (SEPERTI MASTERAUDIO.PRO)
     async function downloadAsRealMP3() {
-      if (!currentActiveAudioId) return;
+      if (!currentActiveDirectUrl) return;
       var btn = document.getElementById('btnConvertMP3');
       var originalText = btn.innerHTML;
       btn.disabled = true;
@@ -594,13 +616,12 @@ function getDashboardHTML() {
       showToast('PROSES', 'Mengonversi ke format MP3 murni...', 'info');
 
       try {
-        var response = await fetch('/api/v1/audio/' + currentActiveAudioId);
+        var response = await fetch(currentActiveDirectUrl);
         var arrayBuffer = await response.arrayBuffer();
 
         var audioCtx = new (window.AudioContext || window.webkitAudioContext)();
         var audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
 
-        // Convert PCM to MP3 via Lamejs
         var channels = audioBuffer.numberOfChannels;
         var sampleRate = audioBuffer.sampleRate;
         var mp3encoder = new lamejs.Mp3Encoder(channels, sampleRate, 320);
