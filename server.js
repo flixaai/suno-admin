@@ -143,6 +143,11 @@ async function getFeedAPI(session) {
   const config = getAxiosConfig(session);
   const res = await axios.get(`${SUNO_API_BASE}/api/feed/`, config);
   const clips = res.data || [];
+  if (clips.length > 0) {
+    console.log('=== DATA RAW SUNO MULAI ===');
+    console.log(JSON.stringify(clips[0], null, 2));
+    console.log('=== DATA RAW SUNO SELESAI ===');
+  }
   return clips.map(c => {
     const durationSec = Math.floor(c.metadata?.duration || 0);
     const mins = Math.floor(durationSec / 60);
