@@ -438,8 +438,16 @@ function getDashboardHTML() {
       } catch (e) {}
     }
 
+    function playClipById(id) {
+      var clip = libraryClips.find(function(c) { return c.id === id; });
+      if (clip) {
+        openMiniPlayer(clip.id, clip.title, clip.tags, clip.imageUrl, clip.audioUrl);
+      }
+    }
+
     function renderAccounts() {
       var tbody = document.getElementById('accountsTableBody');
+      var q = String.fromCharCode(39);
       if (!accounts.length) {
         tbody.innerHTML = '<tr><td colspan="5" class="text-center py-6 text-zinc-500">Belum ada akun aktif. Klik tombol Import Cookie Baru di atas!</td></tr>';
         document.getElementById('statTotalAccounts').textContent = '0';
@@ -460,8 +468,8 @@ function getDashboardHTML() {
           '<td class="p-3.5 text-center">' + statusBadge + '</td>' +
           '<td class="p-3.5 text-center font-bold text-orange-400">' + (acc.creditsLeft || 0) + '</td>' +
           '<td class="p-3.5 text-center">' +
-            '<button type="button" onclick="checkCredits(\'' + acc.id + '\')" class="cursor-pointer px-2.5 py-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg text-xs mr-2"><i class="fas fa-coins mr-1"></i>Cek</button>' +
-            '<button type="button" onclick="deleteAccountDirect(\'' + acc.id + '\')" class="cursor-pointer px-2.5 py-1 bg-red-600 hover:bg-red-500 text-white rounded-lg text-xs font-bold transition"><i class="fas fa-trash"></i></button>' +
+            '<button type="button" onclick="checkCredits(' + q + acc.id + q + ')" class="cursor-pointer px-2.5 py-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg text-xs mr-2"><i class="fas fa-coins mr-1"></i>Cek</button>' +
+            '<button type="button" onclick="deleteAccountDirect(' + q + acc.id + q + ')" class="cursor-pointer px-2.5 py-1 bg-red-600 hover:bg-red-500 text-white rounded-lg text-xs font-bold transition"><i class="fas fa-trash"></i></button>' +
           '</td>' +
         '</tr>';
       }).join('');
@@ -474,17 +482,16 @@ function getDashboardHTML() {
 
     function renderLibrary() {
       var c = document.getElementById('libraryContainer');
+      var q = String.fromCharCode(39);
       if (!libraryClips.length) {
         c.innerHTML = '<div class="suno-card rounded-2xl p-12 text-center text-zinc-500"><i class="fas fa-music text-4xl mb-3 block opacity-30"></i><p class="text-xs">Belum ada lagu. Buat lagu di form sebelah kiri!</p></div>';
         return;
       }
 
       c.innerHTML = libraryClips.map(function(clip) {
-        var cleanTitle = (clip.title || '').replace(/'/g, "\\'");
-        var cleanTags = (clip.tags || '').replace(/'/g, "\\'");
         return '<div class="suno-card rounded-2xl p-3.5 flex items-center justify-between hover:bg-[#181924] transition">' +
           '<div class="flex items-center space-x-3.5 overflow-hidden">' +
-            '<div class="relative w-14 h-14 rounded-xl overflow-hidden shrink-0 cursor-pointer shadow-md" onclick="openMiniPlayer(\'' + clip.id + '\', \'' + cleanTitle + '\', \'' + cleanTags + '\', \'' + clip.imageUrl + '\', \'' + clip.audioUrl + '\')">' +
+            '<div class="relative w-14 h-14 rounded-xl overflow-hidden shrink-0 cursor-pointer shadow-md" onclick="playClipById(' + q + clip.id + q + ')">' +
               '<img src="' + clip.imageUrl + '" class="w-full h-full object-cover">' +
               '<div class="absolute inset-0 bg-black/40 flex items-center justify-center">' +
                 '<div class="w-7 h-7 rounded-full bg-white text-zinc-900 flex items-center justify-center pl-0.5 shadow-lg">' +
@@ -502,7 +509,7 @@ function getDashboardHTML() {
             '</div>' +
           '</div>' +
           '<div class="flex items-center space-x-2 shrink-0">' +
-            '<button type="button" onclick="openMiniPlayer(\'' + clip.id + '\', \'' + cleanTitle + '\', \'' + cleanTags + '\', \'' + clip.imageUrl + '\', \'' + clip.audioUrl + '\')" class="cursor-pointer p-2.5 rounded-xl bg-orange-600/10 text-orange-400 hover:bg-orange-600 hover:text-white text-xs transition" title="Putar">' +
+            '<button type="button" onclick="playClipById(' + q + clip.id + q + ')" class="cursor-pointer p-2.5 rounded-xl bg-orange-600/10 text-orange-400 hover:bg-orange-600 hover:text-white text-xs transition" title="Putar">' +
               '<i class="fas fa-play"></i>' +
             '</button>' +
             '<a href="/api/v1/audio/' + clip.id + '?download=true&format=mp3&title=' + encodeURIComponent(clip.title || 'song') + '" class="p-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs transition" title="Download MP3">' +
@@ -515,13 +522,14 @@ function getDashboardHTML() {
 
     function renderQueueTable() {
       var tbody = document.getElementById('queueTableBody');
+      var q = String.fromCharCode(39);
       if (!tasks.length) {
         tbody.innerHTML = '<tr><td colspan="3" class="text-center py-6 text-zinc-500">Belum ada antrean tugas.</td></tr>';
         return;
       }
       tbody.innerHTML = tasks.map(function(t) {
-        var actionBtn = t.result 
-          ? '<button type="button" onclick="openMiniPlayer(\'' + t.result[0].id + '\', \'' + (t.result[0].title || '').replace(/'/g, "\\'") + '\', \'' + (t.result[0].tags || '').replace(/'/g, "\\'") + '\', \'' + t.result[0].imageUrl + '\', \'' + t.result[0].audioUrl + '\')" class="cursor-pointer px-3 py-1 bg-orange-600 text-white rounded-lg text-xs font-bold"><i class="fas fa-play mr-1"></i>Play</button>'
+        var actionBtn = (t.result && t.result[0]) 
+          ? '<button type="button" onclick="playClipById(' + q + t.result[0].id + q + ')" class="cursor-pointer px-3 py-1 bg-orange-600 text-white rounded-lg text-xs font-bold"><i class="fas fa-play mr-1"></i>Play</button>'
           : '<span class="text-zinc-500">Memproses...</span>';
 
         return '<tr class="hover:bg-[#181a24] transition">' +
