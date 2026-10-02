@@ -34,15 +34,15 @@ function getLoginHTML() {
     </form>
   </div>
   <script>
-    document.getElementById('loginForm').addEventListener('submit', async function(e) {
+    document.getElementById('loginForm').addEventListener('submit', async (e) => {
       e.preventDefault();
-      var btn = document.getElementById('btnSign');
+      const btn = document.getElementById('btnSign');
       btn.disabled = true; btn.textContent = 'Checking...';
-      var res = await fetch('/admin/login', {
+      const res = await fetch('/admin/login', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username: document.getElementById('username').value, password: document.getElementById('password').value })
       });
-      var data = await res.json();
+      const data = await res.json();
       if (data.success) window.location.href = '/admin/dashboard';
       else {
         document.getElementById('loginError').textContent = data.error;
@@ -296,37 +296,37 @@ function getDashboardHTML() {
   <div id="toastContainer" class="fixed top-4 right-4 z-50 space-y-2 select-text"></div>
 
   <script>
-    var socket = io();
-    var accounts = [];
-    var tasks = [];
-    var libraryClips = [];
+    const socket = io();
+    let accounts = [];
+    let tasks = [];
+    let libraryClips = [];
 
-    socket.on('accounts:updated', function(data) { accounts = data; renderAccounts(); });
-    socket.on('tasks:updated', function(data) { tasks = data; renderQueueTable(); });
+    socket.on('accounts:updated', (data) => { accounts = data; renderAccounts(); });
+    socket.on('tasks:updated', (data) => { tasks = data; renderQueueTable(); });
     
-    socket.on('songs:loaded', function(data) {
+    socket.on('songs:loaded', (data) => {
       libraryClips = data || [];
       renderLibrary();
       renderQueueTable();
       document.getElementById('statTotalSongs').textContent = libraryClips.length;
     });
 
-    socket.on('account:credits', function(data) {
+    socket.on('account:credits', (data) => {
       document.getElementById('topCreditDisplay').textContent = data.credits;
       document.getElementById('statTotalCredits').textContent = data.credits;
     });
 
-    socket.on('task:completed', function(data) {
+    socket.on('task:completed', (data) => {
       showToast('SUCCESS', '2 Lagu baru siap diputar!', 'success');
       refreshAll();
     });
 
-    socket.on('notification', function(data) {
+    socket.on('notification', (data) => {
       showToast(data.type.toUpperCase(), data.message, data.type);
     });
 
     function renderAccounts() {
-      var tbody = document.getElementById('accountsTableBody');
+      const tbody = document.getElementById('accountsTableBody');
       if (!accounts.length) {
         tbody.innerHTML = '<tr><td colspan="5" class="text-center py-6 text-zinc-500">Belum ada akun. Klik Import Cookie di atas!</td></tr>';
         document.getElementById('statTotalAccounts').textContent = '0';
@@ -335,22 +335,22 @@ function getDashboardHTML() {
         document.getElementById('statTotalCredits').textContent = '0';
         return;
       }
-      tbody.innerHTML = accounts.map(function(acc) {
-        var statusBadge = acc.statusCookie === 'active' 
-          ? '<span class="text-emerald-400 font-bold bg-emerald-500/10 px-2 py-1 rounded-full text-[10px]">🟢 Active</span>' 
-          : '<span class="text-red-400 font-bold bg-red-500/10 px-2 py-1 rounded-full text-[10px]">🔴 Expired</span>';
-
-        return '<tr class="hover:bg-[#181a24] transition">' +
-          '<td class="p-3.5 font-mono text-zinc-400 font-bold">' + acc.id + '</td>' +
-          '<td class="p-3.5 text-white">' + acc.email + '</td>' +
-          '<td class="p-3.5 text-center">' + statusBadge + '</td>' +
-          '<td class="p-3.5 text-center font-bold text-orange-400">' + (acc.creditsLeft || 0) + '</td>' +
-          '<td class="p-3.5 text-center">' +
-            '<button onclick="checkCredits(\'' + acc.id + '\')" class="px-2.5 py-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg text-xs mr-2"><i class="fas fa-coins mr-1"></i>Cek</button>' +
-            '<button onclick="deleteAccountDirect(\'' + acc.id + '\')" class="px-2.5 py-1 bg-red-600 hover:bg-red-500 text-white rounded-lg text-xs font-bold transition"><i class="fas fa-trash"></i></button>' +
-          '</td>' +
-        '</tr>';
-      }).join('');
+      tbody.innerHTML = accounts.map(acc => \`
+        <tr class="hover:bg-[#181a24] transition">
+          <td class="p-3.5 font-mono text-zinc-400 font-bold">\${acc.id}</td>
+          <td class="p-3.5 text-white">\${acc.email}</td>
+          <td class="p-3.5 text-center">
+            <span class="\${acc.statusCookie === 'active' ? 'text-emerald-400 bg-emerald-500/10' : 'text-red-400 bg-red-500/10'} font-bold px-2 py-1 rounded-full text-[10px]">
+              \${acc.statusCookie === 'active' ? '🟢 Active' : '🔴 Expired'}
+            </span>
+          </td>
+          <td class="p-3.5 text-center font-bold text-orange-400">\${acc.creditsLeft || 0}</td>
+          <td class="p-3.5 text-center">
+            <button onclick="checkCredits('\${acc.id}')" class="px-2.5 py-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg text-xs mr-2"><i class="fas fa-coins mr-1"></i>Cek</button>
+            <button onclick="deleteAccountDirect('\${acc.id}')" class="px-2.5 py-1 bg-red-600 hover:bg-red-500 text-white rounded-lg text-xs font-bold transition"><i class="fas fa-trash"></i></button>
+          </td>
+        </tr>
+      \`).join('');
 
       document.getElementById('statTotalAccounts').textContent = accounts.length;
       document.getElementById('statActiveSessions').textContent = '1';
@@ -359,62 +359,59 @@ function getDashboardHTML() {
     }
 
     function renderLibrary() {
-      var c = document.getElementById('libraryContainer');
+      const c = document.getElementById('libraryContainer');
       if (!libraryClips.length) {
         c.innerHTML = '<div class="suno-card rounded-2xl p-12 text-center text-zinc-500"><i class="fas fa-music text-4xl mb-3 block opacity-30"></i><p class="text-xs">Belum ada lagu. Buat lagu di form sebelah kiri!</p></div>';
         return;
       }
 
-      c.innerHTML = libraryClips.map(function(clip) {
-        var directAudio = 'https://cdn1.suno.ai/' + clip.id + '.mp3';
-        return '<div class="suno-card rounded-2xl p-3.5 flex items-center justify-between hover:bg-[#181924] transition">' +
-          '<div class="flex items-center space-x-3.5 overflow-hidden">' +
-            '<div class="relative w-14 h-14 rounded-xl overflow-hidden shrink-0 cursor-pointer shadow-md" onclick="openMiniPlayer(\'' + clip.id + '\', \'' + (clip.title || '').replace(/'/g, "\\'") + '\', \'' + (clip.tags || '').replace(/'/g, "\\'") + '\', \'' + clip.imageUrl + '\')">' +
-              '<img src="' + clip.imageUrl + '" class="w-full h-full object-cover">' +
-              '<div class="absolute inset-0 bg-black/40 flex items-center justify-center">' +
-                '<div class="w-7 h-7 rounded-full bg-white text-zinc-900 flex items-center justify-center pl-0.5 shadow-lg">' +
-                  '<i class="fas fa-play text-[10px]"></i>' +
-                '</div>' +
-              '</div>' +
-            '</div>' +
-            '<div class="overflow-hidden">' +
-              '<div class="flex items-center space-x-2">' +
-                '<h4 class="text-xs font-bold text-white truncate max-w-[180px] sm:max-w-[260px]">' + clip.title + '</h4>' +
-                '<span class="text-[9px] font-bold px-1.5 py-0.2 rounded bg-zinc-800 text-zinc-400">v6-mini</span>' +
-              '</div>' +
-              '<p class="text-[11px] text-zinc-400 truncate mt-0.5">' + clip.tags + '</p>' +
-              '<span class="text-[10px] text-zinc-500"><i class="far fa-clock mr-1"></i>' + (clip.duration || '3:00') + '</span>' +
-            '</div>' +
-          '</div>' +
-          '<div class="flex items-center space-x-2 shrink-0">' +
-            '<button onclick="openMiniPlayer(\'' + clip.id + '\', \'' + (clip.title || '').replace(/'/g, "\\'") + '\', \'' + (clip.tags || '').replace(/'/g, "\\'") + '\', \'' + clip.imageUrl + '\')" class="p-2.5 rounded-xl bg-orange-600/10 text-orange-400 hover:bg-orange-600 hover:text-white text-xs transition">' +
-              '<i class="fas fa-play"></i>' +
-            '</button>' +
-            '<a href="' + directAudio + '" target="_blank" download="' + encodeURIComponent(clip.title || 'song') + '.mp3" class="p-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs transition" title="Download MP3">' +
-              '<i class="fas fa-download"></i>' +
-            '</a>' +
-          '</div>' +
-        '</div>';
-      }).join('');
+      c.innerHTML = libraryClips.map(clip => \`
+        <div class="suno-card rounded-2xl p-3.5 flex items-center justify-between hover:bg-[#181924] transition">
+          <div class="flex items-center space-x-3.5 overflow-hidden">
+            <div class="relative w-14 h-14 rounded-xl overflow-hidden shrink-0 cursor-pointer shadow-md" onclick="openMiniPlayer('\${clip.id}', '\${clip.title}', '\${clip.tags}', '\${clip.imageUrl}')">
+              <img src="\${clip.imageUrl}" class="w-full h-full object-cover">
+              <div class="absolute inset-0 bg-black/40 flex items-center justify-center">
+                <div class="w-7 h-7 rounded-full bg-white text-zinc-900 flex items-center justify-center pl-0.5 shadow-lg">
+                  <i class="fas fa-play text-[10px]"></i>
+                </div>
+              </div>
+            </div>
+            <div class="overflow-hidden">
+              <div class="flex items-center space-x-2">
+                <h4 class="text-xs font-bold text-white truncate max-w-[180px] sm:max-w-[260px]">\${clip.title}</h4>
+                <span class="text-[9px] font-bold px-1.5 py-0.2 rounded bg-zinc-800 text-zinc-400">v6-mini</span>
+              </div>
+              <p class="text-[11px] text-zinc-400 truncate mt-0.5">\${clip.tags}</p>
+              <span class="text-[10px] text-zinc-500"><i class="far fa-clock mr-1"></i>\${clip.duration || '3:00'}</span>
+            </div>
+          </div>
+          <div class="flex items-center space-x-2 shrink-0">
+            <button onclick="openMiniPlayer('\${clip.id}', '\${clip.title}', '\${clip.tags}', '\${clip.imageUrl}')" class="p-2.5 rounded-xl bg-orange-600/10 text-orange-400 hover:bg-orange-600 hover:text-white text-xs transition">
+              <i class="fas fa-play"></i>
+            </button>
+            <a href="https://cdn1.suno.ai/\${clip.id}.mp3" target="_blank" download="\${encodeURIComponent(clip.title)}.mp3" class="p-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs transition" title="Download MP3">
+              <i class="fas fa-download"></i>
+            </a>
+          </div>
+        </div>
+      \`).join('');
     }
 
     function renderQueueTable() {
-      var tbody = document.getElementById('queueTableBody');
+      const tbody = document.getElementById('queueTableBody');
       if (!tasks.length) {
         tbody.innerHTML = '<tr><td colspan="3" class="text-center py-6 text-zinc-500">Belum ada antrean tugas.</td></tr>';
         return;
       }
-      tbody.innerHTML = tasks.map(function(t) {
-        var actionBtn = t.result 
-          ? '<button onclick="openMiniPlayer(\'' + t.result[0].id + '\', \'' + (t.result[0].title || '').replace(/'/g, "\\'") + '\', \'' + (t.result[0].tags || '').replace(/'/g, "\\'") + '\', \'' + t.result[0].imageUrl + '\')" class="px-3 py-1 bg-orange-600 text-white rounded-lg text-xs font-bold"><i class="fas fa-play mr-1"></i>Play</button>'
-          : '<span class="text-zinc-500">Memproses...</span>';
-
-        return '<tr class="hover:bg-[#181a24] transition">' +
-          '<td class="p-3.5 font-bold text-white">' + t.title + '</td>' +
-          '<td class="p-3.5 text-center"><span class="text-emerald-400 font-bold bg-emerald-500/10 px-2 py-0.5 rounded text-[10px]">' + t.status + '</span></td>' +
-          '<td class="p-3.5 text-center">' + actionBtn + '</td>' +
-        '</tr>';
-      }).join('');
+      tbody.innerHTML = tasks.map(t => \`
+        <tr class="hover:bg-[#181a24] transition">
+          <td class="p-3.5 font-bold text-white">\${t.title}</td>
+          <td class="p-3.5 text-center"><span class="text-emerald-400 font-bold bg-emerald-500/10 px-2 py-0.5 rounded text-[10px]">\${t.status}</span></td>
+          <td class="p-3.5 text-center">
+            \${t.result ? \`<button onclick="openMiniPlayer('\${t.result[0].id}', '\${t.result[0].title}', '\${t.result[0].tags}', '\${t.result[0].imageUrl}')" class="px-3 py-1 bg-orange-600 text-white rounded-lg text-xs font-bold"><i class="fas fa-play mr-1"></i>Play</button>\` : '<span class=\"text-zinc-500\">Memproses...</span>'}
+          </td>
+        </tr>
+      \`).join('');
     }
 
     function openMiniPlayer(audioId, title, tags, cover) {
@@ -423,24 +420,24 @@ function getDashboardHTML() {
       document.getElementById('mpCover').src = cover;
       document.getElementById('mpAudioId').textContent = 'ID: ' + audioId;
       
-      var directCdnUrl = 'https://cdn1.suno.ai/' + audioId + '.mp3';
-      var dlBtn = document.getElementById('mpDownload');
+      const directCdnUrl = 'https://cdn1.suno.ai/' + audioId + '.mp3';
+      const dlBtn = document.getElementById('mpDownload');
       dlBtn.href = directCdnUrl;
       dlBtn.target = '_blank';
       dlBtn.setAttribute('download', (title || 'song') + '.mp3');
 
-      var audio = document.getElementById('mpAudio');
+      const audio = document.getElementById('mpAudio');
       audio.src = directCdnUrl;
       audio.load();
 
-      var modal = document.getElementById('miniPlayerModal');
+      const modal = document.getElementById('miniPlayerModal');
       modal.classList.remove('hidden');
       modal.classList.add('flex');
-      audio.play().catch(function(e) {});
+      audio.play().catch(e => {});
     }
 
     function closeMiniPlayer() {
-      var audio = document.getElementById('mpAudio');
+      const audio = document.getElementById('mpAudio');
       audio.pause();
       document.getElementById('miniPlayerModal').classList.add('hidden');
       document.getElementById('miniPlayerModal').classList.remove('flex');
@@ -452,15 +449,15 @@ function getDashboardHTML() {
     }
 
     function switchTab(view) {
-      ['dashboard', 'generator', 'queue'].forEach(function(v) {
-        document.getElementById('view-' + v).classList.toggle('hidden', v !== view);
+      ['dashboard', 'generator', 'queue'].forEach(v => {
+        document.getElementById(\`view-\${v}\`).classList.toggle('hidden', v !== view);
       });
       toggleDrawer(false);
     }
 
-    document.getElementById('songGenForm').addEventListener('submit', function(e) {
+    document.getElementById('songGenForm').addEventListener('submit', (e) => {
       e.preventDefault();
-      var btn = document.getElementById('btnGenSong');
+      const btn = document.getElementById('btnGenSong');
       btn.disabled = true;
       btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Generating v6-mini...';
 
@@ -469,7 +466,7 @@ function getDashboardHTML() {
         style: document.getElementById('songStyle').value,
         lyrics: document.getElementById('songLyrics').value,
         instrumental: document.getElementById('songInstrumental').checked
-      }, function(res) {
+      }, (res) => {
         btn.disabled = false;
         btn.innerHTML = '<i class="fas fa-wand-magic-sparkles mr-2"></i>Generate Song Now';
         if (res.success) {
@@ -480,16 +477,16 @@ function getDashboardHTML() {
       });
     });
 
-    document.getElementById('importCookieForm').addEventListener('submit', function(e) {
+    document.getElementById('importCookieForm').addEventListener('submit', (e) => {
       e.preventDefault();
-      var btn = document.getElementById('btnImportSubmit');
+      const btn = document.getElementById('btnImportSubmit');
       btn.disabled = true;
       btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Memverifikasi...';
 
       socket.emit('account:importCookie', {
         email: document.getElementById('cookieEmail').value,
         cookieJson: document.getElementById('cookieJsonRaw').value
-      }, function(res) {
+      }, (res) => {
         btn.disabled = false;
         btn.innerHTML = 'Aktifkan & Tes Akun';
         if (res.success) {
@@ -502,20 +499,19 @@ function getDashboardHTML() {
       });
     });
 
-    function checkCredits(id) { socket.emit('account:checkCredits', { id: id }); }
-    function deleteAccountDirect(id) { socket.emit('account:delete', { id: id }); }
+    function checkCredits(id) { socket.emit('account:checkCredits', { id }); }
+    function deleteAccountDirect(id) { socket.emit('account:delete', { id }); }
     function refreshAll() { socket.emit('refresh:all', {}); }
     function openImportCookieModal() { document.getElementById('importCookieModal').classList.remove('hidden'); document.getElementById('importCookieModal').classList.add('flex'); }
     function closeModal(id) { document.getElementById(id).classList.add('hidden'); document.getElementById(id).classList.remove('flex'); }
 
-    function showToast(title, message, type) {
-      var c = document.getElementById('toastContainer');
-      var toast = document.createElement('div');
-      var colorClass = (type === 'success') ? 'bg-[#121c16] border-emerald-500/40 text-emerald-300' : (type === 'error') ? 'bg-[#211214] border-red-500/40 text-red-300' : 'bg-[#1e1713] border-orange-500/40 text-orange-300';
-      toast.className = 'p-3.5 rounded-xl shadow-2xl border text-xs max-w-sm ' + colorClass;
-      toast.innerHTML = '<div class="font-bold">' + title + '</div><div class="mt-0.5 text-zinc-400">' + message + '</div>';
+    function showToast(title, message, type = 'info') {
+      const c = document.getElementById('toastContainer');
+      const toast = document.createElement('div');
+      toast.className = \`p-3.5 rounded-xl shadow-2xl border text-xs max-w-sm \${type === 'success' ? 'bg-[#121c16] border-emerald-500/40 text-emerald-300' : type === 'error' ? 'bg-[#211214] border-red-500/40 text-red-300' : 'bg-[#1e1713] border-orange-500/40 text-orange-300'}\`;
+      toast.innerHTML = \`<div class="font-bold">\${title}</div><div class="mt-0.5 text-zinc-400">\${message}</div>\`;
       c.appendChild(toast);
-      setTimeout(function() { toast.remove(); }, 5000);
+      setTimeout(() => toast.remove(), 5000);
     }
   </script>
 </body>
