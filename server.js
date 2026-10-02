@@ -236,42 +236,61 @@ async function generateSongAPI(session, options, accountId) {
 }
 
 // ==========================================
-// 3. MESIN STREAMING & DOWNLOAD AUDIO NYATA (BUFFER & CORS LENGKAP)
+// 3. MESIN STREAMING & DOWNLOAD AUDIO NYATA
 // ==========================================
 app.get('/api/v1/audio/:audioId', async (req, res) => {
   const { audioId } = req.params;
-  const { download, title } = req.query;
+  const { download, title, format } = req.query;
 
   try {
-    const streamUrl = `https://d2lwuy8qc234o3.cloudfront.net/1/clip/${audioId}.m4a`;
+    const accounts = getAccounts();
+    const session = accounts.length > 0 ? loadSession(accounts[0].id) : null;
+    const cookieHeader = session ? session.cookies : '';
+
+    const streamUrl = `https://audiopipe.suno.ai/?item_id=${audioId}`;
     const safeTitle = (title || 'suno_song').replace(/[^a-zA-Z0-9_\-\s]/g, '').trim();
+
+    const reqHeaders = {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+      'Referer': 'https://suno.com/',
+      'Origin': 'https://suno.com',
+      'Cookie': cookieHeader
+    };
+    if (req.headers.range) {
+      reqHeaders['Range'] = req.headers.range;
+    }
 
     const audioRes = await axios({
       method: 'GET',
       url: streamUrl,
-      responseType: 'arraybuffer',
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-      },
-      timeout: 45000
+      responseType: 'stream',
+      headers: reqHeaders,
+      timeout: 45000,
+      validateStatus: (status) => status >= 200 && status < 400
     });
-
-    const buffer = Buffer.from(audioRes.data);
 
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', '*');
-    res.setHeader('Content-Type', 'audio/mp4');
-    res.setHeader('Content-Length', buffer.length);
+    res.status(audioRes.status);
+
+    if (audioRes.headers['content-range']) {
+      res.setHeader('Content-Range', audioRes.headers['content-range']);
+    }
+    if (audioRes.headers['content-length']) {
+      res.setHeader('Content-Length', audioRes.headers['content-length']);
+    }
+    res.setHeader('Content-Type', 'audio/mpeg');
     res.setHeader('Accept-Ranges', 'bytes');
 
     if (download === 'true') {
-      res.setHeader('Content-Disposition', `attachment; filename="${safeTitle}.m4a"`);
+      const ext = (format === 'm4a') ? 'm4a' : 'mp3';
+      res.setHeader('Content-Disposition', `attachment; filename="${safeTitle}.${ext}"`);
     } else {
       res.setHeader('Content-Disposition', 'inline');
     }
 
-    return res.end(buffer);
+    return audioRes.data.pipe(res);
   } catch (err) {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.status(404).send('Audio sedang diproses atau tidak ditemukan');
@@ -404,7 +423,6 @@ io.on('connection', async (socket) => {
       let accounts = getAccounts();
       if (!accounts.length) throw new Error('Belum ada akun Suno aktif. Import cookie dulu!');
 
-      // Cari akun dengan saldo minimal 10
       let candidateAccounts = accounts.filter(a => a.statusCookie === 'active' && a.creditsLeft >= 10);
       if (candidateAccounts.length === 0) {
         throw new Error('Semua saldo akun habis! Silakan tambahkan cookie akun yang memiliki saldo.');
@@ -435,7 +453,6 @@ io.on('connection', async (socket) => {
             throw new Error('Ditolak Suno: Lirik melanggar Pedoman Konten / Moderasi!');
           }
           
-          // Jika masalah kredit, set saldo akun tersebut 0 dan lanjut ke akun berikutnya
           if (rawErr.toLowerCase().includes('credit') || genErr.response?.status === 402) {
             candidate.creditsLeft = 0;
             saveAccounts(accounts);
