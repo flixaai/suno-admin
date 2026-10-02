@@ -45,7 +45,7 @@ function addLiveLog(type, title, detail) {
   const entry = {
     id: uuidv4(),
     time: new Date().toLocaleTimeString('id-ID', { hour12: false }),
-    type: type, // 'suno_raw', 'generate_error', 'system', 'auth'
+    type: type,
     title: title,
     detail: typeof detail === 'object' ? JSON.stringify(detail, null, 2) : String(detail)
   };
@@ -97,7 +97,6 @@ function deleteSessionFile(accountId) {
   } catch (e) {}
 }
 
-// Perhitungan Masa Aktif Nyata Token Clerk
 function calculateRealExpiry(expSeconds) {
   if (!expSeconds) return 'Aktif (Auto-Refresh)';
   const nowSec = Math.floor(Date.now() / 1000);
@@ -110,7 +109,7 @@ function calculateRealExpiry(expSeconds) {
 }
 
 // ==========================================
-// 2. MESIN UTAMA SUNO API (OFFICIAL v6-mini) & CLERK KEEP-ALIVE
+// 2. MESIN UTAMA SUNO API & CLERK KEEP-ALIVE
 // ==========================================
 const SUNO_API_BASE = 'https://studio-api.prod.suno.com';
 
@@ -155,7 +154,7 @@ function getAxiosConfig(session) {
       'Authorization': `Bearer ${session.bearerToken}`,
       'Cookie': session.cookies || '',
       'Content-Type': 'application/json',
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
       'Accept': '*/*',
       'Origin': 'https://suno.com',
       'Referer': 'https://suno.com/'
@@ -215,9 +214,7 @@ async function generateSongAPI(session, options, accountId) {
   const config = getAxiosConfig(session);
   const { title, style, lyrics, instrumental } = options;
 
-  let payload = {
-    make_instrumental: !!instrumental
-  };
+  let payload = { make_instrumental: !!instrumental };
 
   if (instrumental) {
     payload.prompt = '';
@@ -236,64 +233,20 @@ async function generateSongAPI(session, options, accountId) {
 }
 
 // ==========================================
-// 3. MESIN STREAMING & DOWNLOAD AUDIO NYATA
+// 3. MESIN PENGAMBIL KUNCI AES (API HELPER)
 // ==========================================
-app.get('/api/v1/audio/:audioId', async (req, res) => {
-  const { audioId } = req.params;
-  const { download, title, format } = req.query;
-
+app.get('/api/v1/keys/:audioId', async (req, res) => {
   try {
-    const accounts = getAccounts();
-    const session = accounts.length > 0 ? loadSession(accounts[0].id) : null;
-    const cookieHeader = session ? session.cookies : '';
-
-    const streamUrl = `https://audiopipe.suno.ai/?item_id=${audioId}`;
-    const safeTitle = (title || 'suno_song').replace(/[^a-zA-Z0-9_\-\s]/g, '').trim();
-
-    const reqHeaders = {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-      'Referer': 'https://suno.com/',
-      'Origin': 'https://suno.com',
-      'Cookie': cookieHeader
-    };
-    if (req.headers.range) {
-      reqHeaders['Range'] = req.headers.range;
-    }
-
-    const audioRes = await axios({
-      method: 'GET',
-      url: streamUrl,
-      responseType: 'stream',
-      headers: reqHeaders,
-      timeout: 45000,
-      validateStatus: (status) => status >= 200 && status < 400
-    });
-
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', '*');
-    res.status(audioRes.status);
-
-    if (audioRes.headers['content-range']) {
-      res.setHeader('Content-Range', audioRes.headers['content-range']);
-    }
-    if (audioRes.headers['content-length']) {
-      res.setHeader('Content-Length', audioRes.headers['content-length']);
-    }
-    res.setHeader('Content-Type', 'audio/mpeg');
-    res.setHeader('Accept-Ranges', 'bytes');
-
-    if (download === 'true') {
-      const ext = (format === 'm4a') ? 'm4a' : 'mp3';
-      res.setHeader('Content-Disposition', `attachment; filename="${safeTitle}.${ext}"`);
+    const { audioId } = req.params;
+    const url = `https://masteraudio.pro/api/suno?url=https://suno.com/song/${audioId}`;
+    const response = await axios.get(url, { timeout: 15000 });
+    if (response.data) {
+      res.json(response.data);
     } else {
-      res.setHeader('Content-Disposition', 'inline');
+      res.status(404).json({ error: 'Data tidak ditemukan' });
     }
-
-    return audioRes.data.pipe(res);
   } catch (err) {
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.status(404).send('Audio sedang diproses atau tidak ditemukan');
+    res.status(500).json({ error: 'Gagal mengambil kunci AES' });
   }
 });
 
@@ -336,7 +289,6 @@ io.on('connection', async (socket) => {
     }
   });
 
-  // IMPORT COOKIE KE POOL MULTI-AKUN
   socket.on('account:importCookie', async (data, callback) => {
     try {
       const { email, cookieJson } = data;
@@ -417,7 +369,6 @@ io.on('connection', async (socket) => {
     }
   });
 
-  // BIKIN LAGU DENGAN AUTO-FAILOVER PINDAH AKUN OTOMATIS
   socket.on('song:generate', async (data, callback) => {
     try {
       let accounts = getAccounts();
@@ -488,7 +439,6 @@ io.on('connection', async (socket) => {
       io.emit('tasks:updated', tasks.slice(0, 50));
       if (callback) callback({ success: true });
 
-      // Polling hasil klip
       let attempts = 0;
       const interval = setInterval(async () => {
         attempts++;
@@ -530,7 +480,6 @@ io.on('connection', async (socket) => {
     }
   });
 
-  // CEK SALDO AKUN SPESIFIK
   socket.on('account:checkCredits', async (data, callback) => {
     try {
       let accounts = getAccounts();
@@ -560,7 +509,6 @@ io.on('connection', async (socket) => {
     }
   });
 
-  // HAPUS AKUN TERTENTU
   socket.on('account:delete', (data, callback) => {
     const targetId = data.id;
     let accounts = getAccounts();
@@ -609,7 +557,6 @@ io.on('connection', async (socket) => {
   });
 });
 
-// Auto-refresh token untuk seluruh akun di pool setiap 30 menit
 cron.schedule('*/30 * * * *', async () => {
   try {
     const accounts = getAccounts();
