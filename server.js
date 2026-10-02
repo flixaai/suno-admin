@@ -103,10 +103,17 @@ function getAxiosConfig(session, useProxy = true) {
   const config = {
     headers: {
       'Content-Type': 'application/json',
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-      'Accept': '*/*',
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+      'Accept': 'application/json, text/plain, */*',
+      'Accept-Language': 'en-US,en;q=0.9',
       'Origin': 'https://suno.com',
-      'Referer': 'https://suno.com/'
+      'Referer': 'https://suno.com/',
+      'sec-ch-ua': '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"',
+      'sec-ch-ua-mobile': '?0',
+      'sec-ch-ua-platform': '"Windows"',
+      'sec-fetch-dest': 'empty',
+      'sec-fetch-mode': 'cors',
+      'sec-fetch-site': 'same-site'
     },
     timeout: 45000
   };
@@ -222,7 +229,7 @@ async function generateSongAPI(session, options, accountId) {
 }
 
 // ==========================================
-// 3. MESIN STREAMING AUDIO (AUDIOPIPE + PROXY)
+// 3. MESIN STREAMING AUDIO (AUDIOPIPE)
 // ==========================================
 app.get('/api/v1/audio/:audioId', async (req, res) => {
   const { audioId } = req.params;
@@ -232,22 +239,29 @@ app.get('/api/v1/audio/:audioId', async (req, res) => {
     const accounts = getAccounts();
     const session = accounts.length > 0 ? loadSession(accounts[0].id) : null;
     
-    if (!session || !session.bearerToken) throw new Error('Sesi tidak valid');
+    if (!session || !session.cookies) throw new Error('Sesi tidak valid');
 
     const streamUrl = `https://audiopipe.suno.ai/?item_id=${audioId}`;
     const safeTitle = (title || 'suno_song').replace(/[^a-zA-Z0-9_\-\s]/g, '').trim();
 
-    const config = getAxiosConfig(session, true);
-    config.responseType = 'stream';
-    config.url = streamUrl;
-    config.method = 'GET';
-    config.validateStatus = (status) => status === 200 || status === 206;
+    const reqHeaders = {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+      'Referer': 'https://suno.com/',
+      'Cookie': session.cookies
+    };
 
     if (req.headers.range) {
-      config.headers['Range'] = req.headers.range;
+      reqHeaders['Range'] = req.headers.range;
     }
 
-    const audioRes = await axios(config);
+    const audioRes = await axios({
+      method: 'GET',
+      url: streamUrl,
+      responseType: 'stream',
+      headers: reqHeaders,
+      timeout: 45000,
+      validateStatus: (status) => status === 200 || status === 206
+    });
 
     res.status(audioRes.status);
     if (audioRes.headers['content-range']) res.setHeader('Content-Range', audioRes.headers['content-range']);
@@ -265,7 +279,7 @@ app.get('/api/v1/audio/:audioId', async (req, res) => {
 
     return audioRes.data.pipe(res);
   } catch (err) {
-    res.status(404).send('Audio sedang diproses atau diblokir Cloudflare');
+    res.status(404).send('Audio sedang diproses atau tidak ditemukan');
   }
 });
 
