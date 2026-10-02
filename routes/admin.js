@@ -155,7 +155,7 @@ function getDashboardHTML() {
         </div>
         <div class="suno-card rounded-2xl p-4 overflow-hidden">
           <span class="text-[11px] text-zinc-500 uppercase tracking-wider font-semibold">Masa Aktif Akun</span>
-          <div id="statRealExpiry" class="text-base sm:text-lg font-black text-cyan-400 mt-1 truncate" title="Masa Aktif Akun">179 Hari 22 Jam</div>
+          <div id="statRealExpiry" class="text-base sm:text-lg font-black text-cyan-400 mt-1 truncate" title="Masa Aktif Akun">0 Hari</div>
         </div>
         <div class="suno-card rounded-2xl p-4">
           <span class="text-[11px] text-zinc-500 uppercase tracking-wider font-semibold">Lagu di Suno</span>
@@ -372,7 +372,7 @@ function getDashboardHTML() {
     var cachedRawSuno = '';
     var currentActiveAudioId = '';
     var currentActiveTitle = '';
-    var currentActiveDirectUrl = '';
+    var currentDecryptedBuffer = null;
 
     function openModal(id) {
       var el = document.getElementById(id);
@@ -548,10 +548,12 @@ function getDashboardHTML() {
       }).join('');
     }
 
-    // PEMUTAR AUDIO & DOWNLOAD (JALUR AUDIOPIPE LANGSUNG)
-    function openMiniPlayer(audioId, title, tags, cover, audioUrl) {
+    // AES DECRYPTOR & PLAYER (100% BROWSER)
+    async function openMiniPlayer(audioId, title, tags, cover, audioUrl) {
       currentActiveAudioId = audioId;
       currentActiveTitle = title || 'song';
+      currentDecryptedBuffer = null;
+
       document.getElementById('mpTitle').textContent = title;
       document.getElementById('mpTags').textContent = tags;
       document.getElementById('mpCover').src = cover;
@@ -561,17 +563,43 @@ function getDashboardHTML() {
       var dlM4A = document.getElementById('mpDownloadM4A');
       var btnMP3 = document.getElementById('btnConvertMP3');
       
-      // Arahkan langsung ke proxy Audiopipe di server kita
-      currentActiveDirectUrl = '/api/v1/audio/' + audioId;
-      var cleanTitle = encodeURIComponent(currentActiveTitle);
+      audio.src = ''; 
+      dlM4A.href = '#'; 
+      dlM4A.removeAttribute('download'); 
+      btnMP3.disabled = true;
       
-      audio.src = currentActiveDirectUrl;
-      dlM4A.href = currentActiveDirectUrl + '?download=true&format=m4a&title=' + cleanTitle;
-      dlM4A.setAttribute('download', currentActiveTitle + '.m4a');
-      btnMP3.disabled = false;
+      showToast('PROSES', 'Membuka gembok AES audio...', 'info');
       
-      audio.load();
-      audio.play().catch(function(e) {});
+      try {
+        var keyRes = await fetch('/api/v1/keys/' + audioId);
+        var keyData = await keyRes.json();
+        
+        if (!keyData || !keyData.key) throw new Error("Kunci AES tidak ditemukan");
+
+        var audioRes = await fetch('/api/v1/raw-audio?url=' + encodeURIComponent(keyData.audioUrl));
+        var encBuffer = await audioRes.arrayBuffer();
+        
+        var keyBytes = Uint8Array.from(atob(keyData.key), c => c.charCodeAt(0));
+        var ivBytes = Uint8Array.from(atob(keyData.iv), c => c.charCodeAt(0));
+        
+        var cryptoKey = await crypto.subtle.importKey("raw", keyBytes, {name: "AES-CTR"}, false, ["decrypt"]);
+        var decBuffer = await crypto.subtle.decrypt({name: "AES-CTR", counter: ivBytes, length: 128}, cryptoKey, encBuffer);
+        
+        currentDecryptedBuffer = decBuffer;
+
+        var blob = new Blob([decBuffer], {type: "audio/mp4"});
+        var blobUrl = URL.createObjectURL(blob);
+        
+        audio.src = blobUrl;
+        dlM4A.href = blobUrl;
+        dlM4A.setAttribute('download', currentActiveTitle + '.m4a');
+        btnMP3.disabled = false;
+        
+        showToast('BERHASIL', 'Gembok AES terbuka! Audio siap diputar.', 'success');
+        audio.play().catch(function(e) {});
+      } catch (err) {
+        showToast('ERROR', 'Gagal membuka gembok AES', 'error');
+      }
     }
 
     function closeMiniPlayer() {
@@ -580,9 +608,9 @@ function getDashboardHTML() {
       closeModal('miniPlayerModal');
     }
 
-    // KONVERSI KE MP3 MURNI 320 KBPS DI BROWSER DARI DATA ASLI
+    // KONVERSI KE MP3 MURNI 320 KBPS DI BROWSER DARI DATA YANG SUDAH DIBUKA GEMBOKNYA
     async function downloadAsRealMP3() {
-      if (!currentActiveDirectUrl) return;
+      if (!currentDecryptedBuffer) return;
       var btn = document.getElementById('btnConvertMP3');
       var originalText = btn.innerHTML;
       btn.disabled = true;
@@ -590,11 +618,8 @@ function getDashboardHTML() {
       showToast('PROSES', 'Mengonversi ke format MP3 murni...', 'info');
 
       try {
-        var response = await fetch(currentActiveDirectUrl);
-        var arrayBuffer = await response.arrayBuffer();
-
         var audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        var audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+        var audioBuffer = await audioCtx.decodeAudioData(currentDecryptedBuffer.slice(0));
 
         var channels = audioBuffer.numberOfChannels;
         var sampleRate = audioBuffer.sampleRate;
