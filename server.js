@@ -34,6 +34,7 @@ if (!fs.existsSync(SESSIONS_DIR)) fs.mkdirSync(SESSIONS_DIR, { recursive: true }
 
 const ACCOUNTS_FILE = path.join(DATA_DIR, 'accounts.json');
 const QUEUE_FILE = path.join(DATA_DIR, 'queue.json');
+const PROXY_FILE = path.join(DATA_DIR, 'proxy.json');
 
 const liveLogs = [];
 let latestRawSunoData = null;
@@ -77,6 +78,14 @@ function deleteSessionFile(accountId) {
   try { const p = path.join(SESSIONS_DIR, `${accountId}.json`); if (fs.existsSync(p)) fs.unlinkSync(p); } catch (e) {}
 }
 
+function getProxy() {
+  try { if (fs.existsSync(PROXY_FILE)) return JSON.parse(fs.readFileSync(PROXY_FILE, 'utf-8')); } catch (e) {}
+  return null;
+}
+function saveProxy(data) {
+  try { fs.writeFileSync(PROXY_FILE, JSON.stringify(data, null, 2), 'utf-8'); } catch (e) {}
+}
+
 function calculateRealExpiry(expSeconds) {
   if (!expSeconds) return 'Aktif (Auto-Refresh)';
   const nowSec = Math.floor(Date.now() / 1000);
@@ -84,11 +93,42 @@ function calculateRealExpiry(expSeconds) {
   if (diffSec <= 0) return 'Kedaluwarsa';
   const days = Math.floor(diffSec / 86400);
   const hours = Math.floor((diffSec % 86400) / 3600);
-  if (days > 0) return `${days}h ${hours}j`;
+  if (days > 0) return `${days} Hari ${hours} Jam`;
   return `${hours} Jam`;
 }
 
 const SUNO_API_BASE = 'https://studio-api.prod.suno.com';
+
+function getAxiosConfig(session, useProxy = true) {
+  const config = {
+    headers: {
+      'Content-Type': 'application/json',
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+      'Accept': '*/*',
+      'Origin': 'https://suno.com',
+      'Referer': 'https://suno.com/'
+    },
+    timeout: 45000
+  };
+
+  if (session && session.bearerToken) {
+    config.headers['Authorization'] = `Bearer ${session.bearerToken}`;
+    config.headers['Cookie'] = session.cookies || '';
+  }
+
+  if (useProxy) {
+    const p = getProxy();
+    if (p && p.host && p.port) {
+      config.proxy = {
+        protocol: 'http',
+        host: p.host,
+        port: parseInt(p.port),
+        auth: (p.username && p.password) ? { username: p.username, password: p.password } : undefined
+      };
+    }
+  }
+  return config;
+}
 
 async function keepAliveSession(session, accountId) {
   if (!session || !session.clientToken) return session;
@@ -100,30 +140,15 @@ async function keepAliveSession(session, accountId) {
         sid = payload.sid;
       } catch (e) {}
     }
+    
+    const config = getAxiosConfig(session, true);
+    
     if (!sid) {
-      const cRes = await axios.get('https://auth.suno.com/v1/client?__clerk_api_version=2025-11-10', {
-        headers: { 
-          'Authorization': session.clientToken, 
-          'Cookie': session.cookies || '',
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-          'Origin': 'https://suno.com',
-          'Referer': 'https://suno.com/'
-        },
-        timeout: 10000
-      });
+      const cRes = await axios.get('https://auth.suno.com/v1/client?__clerk_api_version=2025-11-10', config);
       sid = cRes.data?.response?.last_active_session_id || cRes.data?.client?.last_active_session_id;
     }
     if (sid) {
-      const tRes = await axios.post(`https://auth.suno.com/v1/client/sessions/${sid}/tokens`, {}, {
-        headers: { 
-          'Authorization': session.clientToken, 
-          'Cookie': session.cookies || '',
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-          'Origin': 'https://suno.com',
-          'Referer': 'https://suno.com/'
-        },
-        timeout: 10000
-      });
+      const tRes = await axios.post(`https://auth.suno.com/v1/client/sessions/${sid}/tokens`, {}, config);
       if (tRes.data?.jwt) {
         session.bearerToken = tRes.data.jwt;
         session.sessionId = sid;
@@ -133,35 +158,21 @@ async function keepAliveSession(session, accountId) {
     }
   } catch (err) {
     addLiveLog('auth', 'Gagal Refresh Token Sesi', err.message);
+    throw err; // Lempar error agar cron bisa mendeteksi expired
   }
   return session;
 }
 
-function getAxiosConfig(session) {
-  return {
-    headers: {
-      'Authorization': `Bearer ${session.bearerToken}`,
-      'Cookie': session.cookies || '',
-      'Content-Type': 'application/json',
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-      'Accept': '*/*',
-      'Origin': 'https://suno.com',
-      'Referer': 'https://suno.com/'
-    },
-    timeout: 45000
-  };
-}
-
 async function checkCreditsAPI(session, accountId) {
   if (accountId) await keepAliveSession(session, accountId);
-  const config = getAxiosConfig(session);
+  const config = getAxiosConfig(session, true);
   const res = await axios.get(`${SUNO_API_BASE}/api/billing/info/`, config);
   return res.data?.total_credits_left !== undefined ? res.data.total_credits_left : (res.data?.credits_left || 0);
 }
 
 async function getFeedAPI(session, accountId) {
   if (accountId) await keepAliveSession(session, accountId);
-  const config = getAxiosConfig(session);
+  const config = getAxiosConfig(session, true);
   const res = await axios.get(`${SUNO_API_BASE}/api/feed/`, config);
   const clips = res.data || [];
   
@@ -189,7 +200,7 @@ async function getFeedAPI(session, accountId) {
 
 async function generateSongAPI(session, options, accountId) {
   if (accountId) await keepAliveSession(session, accountId);
-  const config = getAxiosConfig(session);
+  const config = getAxiosConfig(session, true);
   const { title, style, lyrics, instrumental } = options;
 
   let payload = { make_instrumental: !!instrumental };
@@ -211,44 +222,50 @@ async function generateSongAPI(session, options, accountId) {
 }
 
 // ==========================================
-// 3. API HELPER: PENGAMBIL KUNCI AES & PROXY AUDIO MENTAH
+// 3. MESIN STREAMING AUDIO (AUDIOPIPE + PROXY)
 // ==========================================
+app.get('/api/v1/audio/:audioId', async (req, res) => {
+  const { audioId } = req.params;
+  const { download, title, format } = req.query;
 
-// Mengambil Kunci AES dari MasterAudio
-app.get('/api/v1/keys/:audioId', async (req, res) => {
   try {
-    const { audioId } = req.params;
-    const url = `https://masteraudio.pro/api/suno?url=https://suno.com/song/${audioId}`;
-    const response = await axios.get(url, { timeout: 15000 });
-    if (response.data && response.data.key) {
-      res.json(response.data);
-    } else {
-      res.status(404).json({ error: 'Kunci tidak ditemukan' });
-    }
-  } catch (err) {
-    res.status(500).json({ error: 'Gagal mengambil kunci AES' });
-  }
-});
-
-// Proxy untuk menyedot file M4A yang digembok (Bypass CORS)
-app.get('/api/v1/raw-audio', async (req, res) => {
-  try {
-    const { url } = req.query;
-    if (!url) return res.status(400).send('URL required');
+    const accounts = getAccounts();
+    const session = accounts.length > 0 ? loadSession(accounts[0].id) : null;
     
-    const audioRes = await axios({
-      method: 'GET',
-      url: url,
-      responseType: 'stream',
-      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
-      timeout: 45000
-    });
+    if (!session || !session.bearerToken) throw new Error('Sesi tidak valid');
 
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Content-Type', 'application/octet-stream');
-    audioRes.data.pipe(res);
+    const streamUrl = `https://audiopipe.suno.ai/?item_id=${audioId}`;
+    const safeTitle = (title || 'suno_song').replace(/[^a-zA-Z0-9_\-\s]/g, '').trim();
+
+    const config = getAxiosConfig(session, true);
+    config.responseType = 'stream';
+    config.url = streamUrl;
+    config.method = 'GET';
+    config.validateStatus = (status) => status === 200 || status === 206;
+
+    if (req.headers.range) {
+      config.headers['Range'] = req.headers.range;
+    }
+
+    const audioRes = await axios(config);
+
+    res.status(audioRes.status);
+    if (audioRes.headers['content-range']) res.setHeader('Content-Range', audioRes.headers['content-range']);
+    if (audioRes.headers['content-length']) res.setHeader('Content-Length', audioRes.headers['content-length']);
+    
+    res.setHeader('Content-Type', 'audio/mpeg');
+    res.setHeader('Accept-Ranges', 'bytes');
+
+    if (download === 'true') {
+      const ext = (format === 'm4a') ? 'm4a' : 'mp3';
+      res.setHeader('Content-Disposition', `attachment; filename="${safeTitle}.${ext}"`);
+    } else {
+      res.setHeader('Content-Disposition', 'inline');
+    }
+
+    return audioRes.data.pipe(res);
   } catch (err) {
-    res.status(500).send('Gagal mengambil raw audio');
+    res.status(404).send('Audio sedang diproses atau diblokir Cloudflare');
   }
 });
 
@@ -266,6 +283,7 @@ io.on('connection', async (socket) => {
   socket.emit('accounts:updated', getAccounts());
   socket.emit('tasks:updated', getTasks().slice(0, 50));
   socket.emit('logs:updated', liveLogs);
+  socket.emit('proxy:data', getProxy());
 
   const accounts = getAccounts();
   if (accounts.length > 0) {
@@ -280,6 +298,24 @@ io.on('connection', async (socket) => {
 
   socket.on('rawsuno:get', (data, callback) => {
     if (callback) callback({ success: true, data: latestRawSunoData || { message: 'Belum ada data lagu.' } });
+  });
+
+  // TES KONEKSI PROXY NYATA
+  socket.on('proxy:test', async (data, callback) => {
+    saveProxy(data);
+    try {
+      const config = getAxiosConfig(null, true);
+      // Ping ke Suno untuk tes tembus Cloudflare
+      await axios.get('https://studio-api.prod.suno.com/api/billing/info/', config);
+      // Jika 401 (Unauthorized) berarti sukses tembus Cloudflare, hanya saja tidak bawa cookie
+      if (callback) callback({ success: true });
+    } catch (err) {
+      if (err.response && err.response.status === 401) {
+        if (callback) callback({ success: true }); // Tembus Cloudflare!
+      } else {
+        if (callback) callback({ success: false, error: err.message });
+      }
+    }
   });
 
   socket.on('account:importCookie', async (data, callback) => {
@@ -318,7 +354,7 @@ io.on('connection', async (socket) => {
       try {
         credits = await checkCreditsAPI(sessionData);
       } catch (errAuth) {
-        throw new Error('Cookie sudah KADALUARSA! Buka suno.com di Kiwi, REFRESH halamannya, lalu Export ulang!');
+        throw new Error('Cookie ditolak Suno! Pastikan Proxy aktif atau Export ulang cookie dari Kiwi.');
       }
 
       saveSession(accountId, sessionData);
@@ -378,7 +414,7 @@ io.on('connection', async (socket) => {
           const rawErr = genErr.response?.data?.detail || genErr.response?.data?.message || genErr.message || '';
           
           if (rawErr.toLowerCase().includes('verify') || rawErr.toLowerCase().includes('403')) {
-            throw new Error('Ditolak Suno (Cloudflare Block). Silakan IMPORT ULANG COOKIE Anda dari Kiwi Browser!');
+            throw new Error('Ditolak Suno (Cloudflare Block). Pastikan Proxy Bright Data Anda Aktif!');
           }
           if (rawErr.toLowerCase().includes('copyright') || rawErr.toLowerCase().includes('artist')) {
             throw new Error('Ditolak Suno: Lirik/Judul mengandung Hak Cipta atau Nama Artis!');
@@ -530,12 +566,31 @@ io.on('connection', async (socket) => {
   });
 });
 
+// Auto-refresh token & Deteksi Expired Otomatis
 cron.schedule('*/30 * * * *', async () => {
   try {
-    const accounts = getAccounts();
-    for (const acc of accounts) {
+    let accounts = getAccounts();
+    let isUpdated = false;
+    for (let acc of accounts) {
       const session = loadSession(acc.id);
-      if (session) await keepAliveSession(session, acc.id);
+      if (session) {
+        try {
+          await keepAliveSession(session, acc.id);
+          if (acc.statusCookie !== 'active') {
+            acc.statusCookie = 'active';
+            isUpdated = true;
+          }
+        } catch (e) {
+          if (acc.statusCookie !== 'expired') {
+            acc.statusCookie = 'expired';
+            isUpdated = true;
+          }
+        }
+      }
+    }
+    if (isUpdated) {
+      saveAccounts(accounts);
+      io.emit('accounts:updated', accounts);
     }
   } catch (e) {}
 });
