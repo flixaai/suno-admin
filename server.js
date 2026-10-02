@@ -37,7 +37,7 @@ if (!fs.existsSync(SESSIONS_DIR)) fs.mkdirSync(SESSIONS_DIR, { recursive: true }
 const ACCOUNTS_FILE = path.join(DATA_DIR, 'accounts.json');
 const QUEUE_FILE = path.join(DATA_DIR, 'queue.json');
 
-// In-Memory Live System Logs
+// In-Memory Live Logs
 const liveLogs = [];
 let latestRawSunoData = null;
 
@@ -54,7 +54,6 @@ function addLiveLog(type, title, detail) {
   io.emit('logs:updated', liveLogs);
 }
 
-// Database Helpers
 function getAccounts() {
   try {
     if (fs.existsSync(ACCOUNTS_FILE)) return JSON.parse(fs.readFileSync(ACCOUNTS_FILE, 'utf-8') || '[]');
@@ -91,15 +90,22 @@ function loadSession(accountId) {
   try { return JSON.parse(fs.readFileSync(p, 'utf-8')); } catch (e) { return null; }
 }
 
+function deleteSessionFile(accountId) {
+  try {
+    const p = path.join(SESSIONS_DIR, `${accountId}.json`);
+    if (fs.existsSync(p)) fs.unlinkSync(p);
+  } catch (e) {}
+}
+
 // Perhitungan Masa Aktif Nyata Token Clerk
 function calculateRealExpiry(expSeconds) {
-  if (!expSeconds) return 'Aktif (Permanen Auto-Refresh)';
+  if (!expSeconds) return 'Aktif (Auto-Refresh)';
   const nowSec = Math.floor(Date.now() / 1000);
   const diffSec = expSeconds - nowSec;
-  if (diffSec <= 0) return 'Kedaluwarsa (Expired)';
+  if (diffSec <= 0) return 'Kedaluwarsa';
   const days = Math.floor(diffSec / 86400);
   const hours = Math.floor((diffSec % 86400) / 3600);
-  if (days > 0) return `${days} Hari ${hours} Jam`;
+  if (days > 0) return `${days}h ${hours}j`;
   return `${hours} Jam`;
 }
 
@@ -108,7 +114,7 @@ function calculateRealExpiry(expSeconds) {
 // ==========================================
 const SUNO_API_BASE = 'https://studio-api.prod.suno.com';
 
-async function keepAliveSession(session, accountId = 'acc_main') {
+async function keepAliveSession(session, accountId) {
   if (!session || !session.clientToken) return session;
   try {
     let sid = session.sessionId;
@@ -134,11 +140,11 @@ async function keepAliveSession(session, accountId = 'acc_main') {
         session.bearerToken = tRes.data.jwt;
         session.sessionId = sid;
         saveSession(accountId, session);
-        addLiveLog('auth', 'Auto-Refresh Berhasil', 'Sesi token Clerk diperbarui secara otomatis');
+        addLiveLog('auth', 'Auto-Refresh Sesi Berhasil', `Token diperbarui untuk ID akun: ${accountId}`);
       }
     }
   } catch (err) {
-    addLiveLog('auth', 'Gagal Auto-Refresh Token', err.message);
+    addLiveLog('auth', 'Gagal Refresh Token Sesi', err.message);
   }
   return session;
 }
@@ -158,22 +164,22 @@ function getAxiosConfig(session) {
   };
 }
 
-async function checkCreditsAPI(session) {
-  await keepAliveSession(session);
+async function checkCreditsAPI(session, accountId) {
+  if (accountId) await keepAliveSession(session, accountId);
   const config = getAxiosConfig(session);
   const res = await axios.get(`${SUNO_API_BASE}/api/billing/info/`, config);
   return res.data?.total_credits_left !== undefined ? res.data.total_credits_left : (res.data?.credits_left || 0);
 }
 
-async function getFeedAPI(session) {
-  await keepAliveSession(session);
+async function getFeedAPI(session, accountId) {
+  if (accountId) await keepAliveSession(session, accountId);
   const config = getAxiosConfig(session);
   const res = await axios.get(`${SUNO_API_BASE}/api/feed/`, config);
   const clips = res.data || [];
   
   if (clips.length > 0) {
     latestRawSunoData = clips[0];
-    addLiveLog('suno_raw', 'Data Raw Suno Terbaru Diterima', clips[0]);
+    addLiveLog('suno_raw', 'Data Raw Suno Diterima', clips[0]);
   }
 
   return clips.map(c => {
@@ -181,7 +187,6 @@ async function getFeedAPI(session) {
     const mins = Math.floor(durationSec / 60);
     const secs = durationSec % 60;
     
-    // Prioritas link audio resmi Suno
     let realAudioUrl = '';
     if (c.media_urls && c.media_urls[0] && c.media_urls[0].url) {
       realAudioUrl = c.media_urls[0].url;
@@ -205,8 +210,8 @@ async function getFeedAPI(session) {
   });
 }
 
-async function generateSongAPI(session, options) {
-  await keepAliveSession(session);
+async function generateSongAPI(session, options, accountId) {
+  if (accountId) await keepAliveSession(session, accountId);
   const config = getAxiosConfig(session);
   const { title, style, lyrics, instrumental } = options;
 
@@ -230,29 +235,48 @@ async function generateSongAPI(session, options) {
   return res.data;
 }
 
-// Endpoint Unduh Audio / Proxy Aman
+// ==========================================
+// 3. MESIN STREAMING & DOWNLOAD AUDIO NYATA
+// ==========================================
 app.get('/api/v1/audio/:audioId', async (req, res) => {
   const { audioId } = req.params;
-  const { download, title, format } = req.query;
+  const { download, title } = req.query;
 
   try {
     const streamUrl = `https://d2lwuy8qc234o3.cloudfront.net/1/clip/${audioId}.m4a`;
     const safeTitle = (title || 'suno_song').replace(/[^a-zA-Z0-9_\-\s]/g, '').trim();
 
-    if (download === 'true') {
-      const ext = format === 'mp3' ? 'mp3' : 'm4a';
-      const audioRes = await axios({
-        method: 'GET',
-        url: streamUrl,
-        responseType: 'stream',
-        timeout: 45000
-      });
-      res.setHeader('Content-Disposition', `attachment; filename="${safeTitle}.${ext}"`);
-      res.setHeader('Content-Type', ext === 'mp3' ? 'audio/mpeg' : 'audio/mp4');
-      return audioRes.data.pipe(res);
-    } else {
-      return res.redirect(streamUrl);
+    const reqHeaders = {};
+    if (req.headers.range) {
+      reqHeaders['Range'] = req.headers.range;
     }
+
+    const audioRes = await axios({
+      method: 'GET',
+      url: streamUrl,
+      responseType: 'stream',
+      headers: reqHeaders,
+      timeout: 45000,
+      validateStatus: (status) => status >= 200 && status < 400
+    });
+
+    res.status(audioRes.status);
+    if (audioRes.headers['content-range']) {
+      res.setHeader('Content-Range', audioRes.headers['content-range']);
+    }
+    if (audioRes.headers['content-length']) {
+      res.setHeader('Content-Length', audioRes.headers['content-length']);
+    }
+    res.setHeader('Content-Type', 'audio/mp4');
+    res.setHeader('Accept-Ranges', 'bytes');
+
+    if (download === 'true') {
+      res.setHeader('Content-Disposition', `attachment; filename="${safeTitle}.m4a"`);
+    } else {
+      res.setHeader('Content-Disposition', 'inline');
+    }
+
+    return audioRes.data.pipe(res);
   } catch (err) {
     res.status(404).send('Audio sedang diproses atau tidak ditemukan');
   }
@@ -270,7 +294,7 @@ app.use('/admin', adminRoutes);
 app.get('/', (req, res) => { res.redirect('/admin/dashboard'); });
 
 // ==========================================
-// 4. WEBSOCKET REAL-TIME ENGINE
+// 4. WEBSOCKET REAL-TIME ENGINE (MULTI-AKUN POOL)
 // ==========================================
 io.on('connection', async (socket) => {
   socket.emit('accounts:updated', getAccounts());
@@ -282,13 +306,12 @@ io.on('connection', async (socket) => {
     const session = loadSession(accounts[0].id);
     if (session) {
       try {
-        const songs = await getFeedAPI(session);
+        const songs = await getFeedAPI(session, accounts[0].id);
         socket.emit('songs:loaded', songs);
       } catch (e) {}
     }
   }
 
-  // Permintaan Data Raw Suno dari Tombol Web
   socket.on('rawsuno:get', (data, callback) => {
     if (callback) {
       callback({
@@ -298,7 +321,7 @@ io.on('connection', async (socket) => {
     }
   });
 
-  // IMPORT COOKIE LENGKAP
+  // IMPORT COOKIE KE POOL MULTI-AKUN
   socket.on('account:importCookie', async (data, callback) => {
     try {
       const { email, cookieJson } = data;
@@ -327,7 +350,10 @@ io.on('connection', async (socket) => {
       const bearerToken = sessionCookie.value;
       const cookiesHeader = cookiesArray.map(c => `${c.name}=${c.value}`).join('; ');
 
-      const accountId = 'acc_main';
+      let currentAccounts = getAccounts();
+      let accountIndex = currentAccounts.findIndex(a => a.email === email);
+      const accountId = (accountIndex !== -1) ? currentAccounts[accountIndex].id : ('acc_' + uuidv4().substring(0, 8));
+
       const sessionData = { bearerToken, clientToken, sessionId, cookies: cookiesHeader };
 
       let credits = 0;
@@ -341,73 +367,94 @@ io.on('connection', async (socket) => {
 
       const realExpiryStr = calculateRealExpiry(realExp);
 
-      const updatedAccounts = [{
+      const accData = {
         id: accountId,
         email: email,
         creditsLeft: credits,
         statusCookie: 'active',
         realExpiry: realExpiryStr,
+        expTimestamp: realExp,
         lastLogin: new Date().toISOString()
-      }];
+      };
 
-      saveAccounts(updatedAccounts);
+      if (accountIndex !== -1) {
+        currentAccounts[accountIndex] = accData;
+      } else {
+        currentAccounts.push(accData);
+      }
 
-      addLiveLog('auth', 'Akun Berhasil Diaktifkan', `Email: ${email} | Saldo: ${credits} Kredit | Masa Aktif: ${realExpiryStr}`);
+      saveAccounts(currentAccounts);
+      const totalPoolCredits = currentAccounts.reduce((sum, a) => sum + (a.creditsLeft || 0), 0);
 
-      io.emit('accounts:updated', updatedAccounts);
-      io.emit('account:credits', { id: accountId, credits });
-      io.emit('notification', { type: 'success', message: `Akun Terhubung! Masa Aktif: ${realExpiryStr} (${credits} Kredit)` });
+      addLiveLog('auth', 'Akun Pool Ditambahkan/Diperbarui', `Email: ${email} | Saldo: ${credits} | Masa Aktif: ${realExpiryStr}`);
 
-      const songs = await getFeedAPI(sessionData);
+      io.emit('accounts:updated', currentAccounts);
+      io.emit('account:credits', { id: accountId, credits: totalPoolCredits });
+      io.emit('notification', { type: 'success', message: `Akun Terhubung: ${email} (${credits} Kredit)` });
+
+      const songs = await getFeedAPI(sessionData, accountId);
       io.emit('songs:loaded', songs);
 
-      if (callback) callback({ success: true, credits, realExpiry: realExpiryStr });
+      if (callback) callback({ success: true, credits, realExpiry: realExpiryStr, totalCredits: totalPoolCredits });
     } catch (err) {
       addLiveLog('auth', 'Gagal Import Cookie', err.message);
       if (callback) callback({ success: false, error: err.message });
     }
   });
 
-  // BIKIN LAGU RESMI
+  // BIKIN LAGU DENGAN AUTO-FAILOVER PINDAH AKUN OTOMATIS
   socket.on('song:generate', async (data, callback) => {
     try {
-      const accounts = getAccounts();
+      let accounts = getAccounts();
       if (!accounts.length) throw new Error('Belum ada akun Suno aktif. Import cookie dulu!');
 
-      const session = loadSession(accounts[0].id);
-      if (!session) throw new Error('Sesi tidak ditemukan. Import cookie ulang!');
-
-      io.emit('notification', { type: 'info', message: 'Membuat lagu dengan model resmi v6-mini...' });
-
-      let resSuno;
-      try {
-        resSuno = await generateSongAPI(session, data);
-      } catch (genErr) {
-        const rawErr = genErr.response?.data?.detail || genErr.response?.data?.message || genErr.message;
-        let humanReason = rawErr;
-        
-        // Deteksi alasan penolakan Suno secara spesifik
-        if (typeof rawErr === 'string') {
-          if (rawErr.toLowerCase().includes('copyright') || rawErr.toLowerCase().includes('artist')) {
-            humanReason = 'Ditolak Suno: Lirik/Judul mengandung Hak Cipta atau Nama Artis Terkenal!';
-          } else if (rawErr.toLowerCase().includes('credit') || rawErr.toLowerCase().includes('insufficient')) {
-            humanReason = 'Ditolak Suno: Saldo kredit akun Anda habis!';
-          } else if (rawErr.toLowerCase().includes('moderation') || rawErr.toLowerCase().includes('flag')) {
-            humanReason = 'Ditolak Suno: Lirik melanggar Pedoman Konten / Moderasi!';
-          }
-        }
-
-        addLiveLog('generate_error', 'Gagal Generate Lagu', {
-          alasan: humanReason,
-          errorAsli: rawErr,
-          judul: data.title,
-          genre: data.style
-        });
-
-        throw new Error(humanReason);
+      // Cari akun dengan saldo minimal 10
+      let candidateAccounts = accounts.filter(a => a.statusCookie === 'active' && a.creditsLeft >= 10);
+      if (candidateAccounts.length === 0) {
+        throw new Error('Semua saldo akun habis! Silakan tambahkan cookie akun yang memiliki saldo.');
       }
 
-      if (!resSuno || !resSuno.clips) throw new Error('Suno menolak request. Cek saldo akun.');
+      let resSuno = null;
+      let usedAccount = null;
+      let lastErrorMessage = '';
+
+      for (const candidate of candidateAccounts) {
+        const session = loadSession(candidate.id);
+        if (!session) continue;
+
+        try {
+          addLiveLog('system', 'Mencoba Generate Lagu', `Menggunakan Akun: ${candidate.email} (Saldo: ${candidate.creditsLeft})`);
+          resSuno = await generateSongAPI(session, data, candidate.id);
+          if (resSuno && resSuno.clips) {
+            usedAccount = candidate;
+            break;
+          }
+        } catch (genErr) {
+          const rawErr = genErr.response?.data?.detail || genErr.response?.data?.message || genErr.message || '';
+          
+          if (rawErr.toLowerCase().includes('copyright') || rawErr.toLowerCase().includes('artist')) {
+            throw new Error('Ditolak Suno: Lirik/Judul mengandung Hak Cipta atau Nama Artis!');
+          }
+          if (rawErr.toLowerCase().includes('moderation') || rawErr.toLowerCase().includes('flag')) {
+            throw new Error('Ditolak Suno: Lirik melanggar Pedoman Konten / Moderasi!');
+          }
+          
+          // Jika masalah kredit, set saldo akun tersebut 0 dan lanjut ke akun berikutnya
+          if (rawErr.toLowerCase().includes('credit') || genErr.response?.status === 402) {
+            candidate.creditsLeft = 0;
+            saveAccounts(accounts);
+            io.emit('accounts:updated', accounts);
+            addLiveLog('system', 'Saldo Akun Habis', `Akun ${candidate.email} habis saldo, otomatis berpindah ke akun cadangan...`);
+            continue;
+          }
+
+          lastErrorMessage = rawErr;
+        }
+      }
+
+      if (!resSuno || !usedAccount) {
+        throw new Error(lastErrorMessage || 'Gagal membuat lagu di seluruh akun yang tersedia.');
+      }
 
       const taskId = uuidv4();
       const clipIds = resSuno.clips.map(c => c.id);
@@ -418,11 +465,12 @@ io.on('connection', async (socket) => {
         clipIds,
         title: data.title || 'Untitled',
         status: 'processing',
+        accountEmail: usedAccount.email,
         createdAt: new Date().toISOString()
       });
       saveTasks(tasks);
 
-      addLiveLog('system', 'Produksi Lagu Dimulai', `Judul: ${data.title} | ID Task: ${taskId}`);
+      addLiveLog('system', 'Produksi Lagu Dimulai', `Judul: ${data.title} | Akun: ${usedAccount.email}`);
 
       io.emit('tasks:updated', tasks.slice(0, 50));
       if (callback) callback({ success: true });
@@ -433,7 +481,8 @@ io.on('connection', async (socket) => {
         attempts++;
         if (attempts > 35) { clearInterval(interval); return; }
         try {
-          const freshSongs = await getFeedAPI(session);
+          const currentSession = loadSession(usedAccount.id);
+          const freshSongs = await getFeedAPI(currentSession, usedAccount.id);
           const found = freshSongs.filter(s => clipIds.includes(s.id));
           const allDone = found.length > 0 && found.every(s => s.status === 'complete' || (s.status === 'streaming' && s.audioUrl));
           if (allDone) {
@@ -449,12 +498,15 @@ io.on('connection', async (socket) => {
             io.emit('songs:loaded', freshSongs);
             io.emit('task:completed', { taskId, result: found });
 
-            addLiveLog('system', 'Lagu Selesai Diproduksi', `Judul: ${data.title} (Siap Diputar & Diunduh)`);
+            addLiveLog('system', 'Lagu Selesai', `Judul: ${data.title} (Siap Diputar & Diunduh)`);
 
-            const newCredits = await checkCreditsAPI(session);
-            accounts[0].creditsLeft = newCredits;
+            const newCredits = await checkCreditsAPI(currentSession, usedAccount.id);
+            usedAccount.creditsLeft = newCredits;
             saveAccounts(accounts);
-            io.emit('account:credits', { id: accounts[0].id, credits: newCredits });
+            
+            const totalPool = accounts.reduce((sum, a) => sum + (a.creditsLeft || 0), 0);
+            io.emit('accounts:updated', accounts);
+            io.emit('account:credits', { id: usedAccount.id, credits: totalPool });
           }
         } catch (e) {}
       }, 5000);
@@ -465,24 +517,29 @@ io.on('connection', async (socket) => {
     }
   });
 
-  // CEK SALDO MANUAL
+  // CEK SALDO AKUN SPESIFIK
   socket.on('account:checkCredits', async (data, callback) => {
     try {
-      const accounts = getAccounts();
-      if (!accounts.length) throw new Error('Tidak ada akun.');
-      const session = loadSession(accounts[0].id);
-      const credits = await checkCreditsAPI(session);
-      accounts[0].creditsLeft = credits;
-      accounts[0].statusCookie = 'active';
+      let accounts = getAccounts();
+      const targetAcc = accounts.find(a => a.id === data.id);
+      if (!targetAcc) throw new Error('Akun tidak ditemukan.');
+      
+      const session = loadSession(targetAcc.id);
+      const credits = await checkCreditsAPI(session, targetAcc.id);
+      targetAcc.creditsLeft = credits;
+      targetAcc.statusCookie = 'active';
       saveAccounts(accounts);
+
+      const totalPool = accounts.reduce((sum, a) => sum + (a.creditsLeft || 0), 0);
       io.emit('accounts:updated', accounts);
-      io.emit('account:credits', { id: accounts[0].id, credits });
-      io.emit('notification', { type: 'info', message: `Saldo Saat Ini: ${credits} Kredit` });
+      io.emit('account:credits', { id: targetAcc.id, credits: totalPool });
+      io.emit('notification', { type: 'info', message: `Saldo ${targetAcc.email}: ${credits} Kredit` });
       if (callback) callback({ success: true, credits });
     } catch (e) {
-      const accounts = getAccounts();
-      if (accounts.length > 0) {
-        accounts[0].statusCookie = 'expired';
+      let accounts = getAccounts();
+      const targetAcc = accounts.find(a => a.id === data.id);
+      if (targetAcc) {
+        targetAcc.statusCookie = 'expired';
         saveAccounts(accounts);
         io.emit('accounts:updated', accounts);
       }
@@ -490,48 +547,63 @@ io.on('connection', async (socket) => {
     }
   });
 
-  // REFRESH ALL
+  // HAPUS AKUN TERTENTU
+  socket.on('account:delete', (data, callback) => {
+    const targetId = data.id;
+    let accounts = getAccounts();
+    if (targetId) {
+      deleteSessionFile(targetId);
+      accounts = accounts.filter(a => a.id !== targetId);
+    } else {
+      accounts.forEach(a => deleteSessionFile(a.id));
+      accounts = [];
+    }
+    saveAccounts(accounts);
+    const totalPool = accounts.reduce((sum, a) => sum + (a.creditsLeft || 0), 0);
+    io.emit('accounts:updated', accounts);
+    io.emit('account:credits', { id: 'pool', credits: totalPool });
+    io.emit('notification', { type: 'info', message: 'Akun berhasil dihapus dari pool.' });
+    addLiveLog('system', 'Akun Dihapus', `Akun ${targetId || 'Semua'} telah dihapus.`);
+    if (callback) callback({ success: true, remainingAccounts: accounts });
+  });
+
   socket.on('refresh:all', async (data, callback) => {
     try {
       const accounts = getAccounts();
       if (accounts.length > 0) {
-        const session = loadSession(accounts[0].id);
-        if (session) {
-          const credits = await checkCreditsAPI(session);
-          accounts[0].creditsLeft = credits;
-          saveAccounts(accounts);
-          const songs = await getFeedAPI(session);
-          io.emit('accounts:updated', accounts);
-          io.emit('account:credits', { id: accounts[0].id, credits });
-          io.emit('songs:loaded', songs);
+        for (const acc of accounts) {
+          const session = loadSession(acc.id);
+          if (session) {
+            try {
+              acc.creditsLeft = await checkCreditsAPI(session, acc.id);
+            } catch (e) {}
+          }
         }
+        saveAccounts(accounts);
+        const sessionFirst = loadSession(accounts[0].id);
+        const songs = await getFeedAPI(sessionFirst, accounts[0].id);
+        const totalPool = accounts.reduce((sum, a) => sum + (a.creditsLeft || 0), 0);
+        io.emit('accounts:updated', accounts);
+        io.emit('account:credits', { id: 'pool', credits: totalPool });
+        io.emit('songs:loaded', songs);
       }
       io.emit('tasks:updated', getTasks().slice(0, 50));
-      io.emit('notification', { type: 'success', message: 'Semua data dan lagu berhasil disinkronkan!' });
+      io.emit('notification', { type: 'success', message: 'Data seluruh akun & lagu disinkronkan!' });
       if (callback) callback({ success: true });
     } catch (e) {
       if (callback) callback({ success: false, error: e.message });
     }
   });
-
-  socket.on('account:delete', (data, callback) => {
-    saveAccounts([]);
-    io.emit('accounts:updated', []);
-    io.emit('account:credits', { id: 'acc_main', credits: 0 });
-    io.emit('notification', { type: 'info', message: 'Akun berhasil dihapus.' });
-    addLiveLog('system', 'Akun Dihapus', 'Data akun Suno telah dihapus oleh pengguna');
-    if (callback) callback({ success: true });
-  });
 });
 
-// Auto-refresh token Clerk setiap 30 menit agar tidak pernah mati
+// Auto-refresh token untuk seluruh akun di pool setiap 30 menit
 cron.schedule('*/30 * * * *', async () => {
   try {
     const accounts = getAccounts();
-    if (accounts.length > 0) {
-      const session = loadSession(accounts[0].id);
+    for (const acc of accounts) {
+      const session = loadSession(acc.id);
       if (session) {
-        await keepAliveSession(session, accounts[0].id);
+        await keepAliveSession(session, acc.id);
       }
     }
   } catch (e) {}
@@ -539,5 +611,5 @@ cron.schedule('*/30 * * * *', async () => {
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, '0.0.0.0', () => {
-  logger.info(`🚀 Suno Studio berjalan di port ${PORT}`);
+  logger.info(`🚀 Suno Studio Multi-Akun berjalan di port ${PORT}`);
 });
