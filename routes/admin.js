@@ -276,7 +276,7 @@ function getDashboardHTML() {
 
   </main>
 
-  <!-- POPUP MINI PLAYER (PUTAR & DOWNLOAD MULTI-FORMAT ASLI) -->
+  <!-- POPUP MINI PLAYER (AES DECRYPTOR & DOWNLOAD) -->
   <div id="miniPlayerModal" style="display: none;" class="fixed inset-0 z-50 items-center justify-center bg-black/80 backdrop-blur-sm p-4">
     <div class="suno-card rounded-3xl p-6 w-full max-w-sm text-center shadow-2xl relative border border-orange-500/30">
       <button type="button" onclick="closeMiniPlayer()" class="absolute top-4 right-4 text-zinc-400 hover:text-white p-2"><i class="fas fa-times text-lg"></i></button>
@@ -284,20 +284,16 @@ function getDashboardHTML() {
       <h3 id="mpTitle" class="text-sm font-bold text-white truncate">Title</h3>
       <p id="mpTags" class="text-xs text-zinc-400 truncate mt-1">Tags</p>
       
-      <!-- Pemutar Audio Native -->
       <div class="mt-4">
         <audio id="mpAudio" controls class="w-full h-10"></audio>
       </div>
 
-      <!-- Tombol Download Asli (M4A & MP3 Converter) -->
       <div class="mt-5 pt-4 border-t border-[#202230] space-y-2">
         <div class="text-[11px] text-zinc-500 font-bold uppercase tracking-wider mb-2">Pilihan Download:</div>
         <div class="grid grid-cols-2 gap-2 text-xs font-bold">
-          <!-- Download M4A Asli -->
           <a id="mpDownloadM4A" href="#" class="cursor-pointer py-2.5 px-3 bg-blue-600 hover:bg-blue-500 text-white rounded-xl flex items-center justify-center space-x-1.5 transition">
             <i class="fas fa-download"></i><span>M4A (Asli)</span>
           </a>
-          <!-- Convert & Download MP3 Murni -->
           <button type="button" id="btnConvertMP3" onclick="downloadAsRealMP3()" class="cursor-pointer py-2.5 px-3 bg-orange-600 hover:bg-orange-500 text-white rounded-xl flex items-center justify-center space-x-1.5 transition">
             <i class="fas fa-file-audio"></i><span>MP3 (320)</span>
           </button>
@@ -376,6 +372,7 @@ function getDashboardHTML() {
     var cachedRawSuno = '';
     var currentActiveAudioId = '';
     var currentActiveTitle = '';
+    var currentActiveDirectUrl = '';
 
     function openModal(id) {
       var el = document.getElementById(id);
@@ -428,7 +425,6 @@ function getDashboardHTML() {
       showToast(data.type.toUpperCase(), data.message, data.type);
     });
 
-    // Auto-Restore Semua Akun Dari LocalStorage Setelah Deploy Ulang
     function autoRestoreLocalVault() {
       try {
         var rawVault = localStorage.getItem('suno_multi_vault');
@@ -502,6 +498,8 @@ function getDashboardHTML() {
       }
 
       c.innerHTML = libraryClips.map(function(clip) {
+        var cleanTitle = (clip.title || '').replace(/'/g, "\\'");
+        var cleanTags = (clip.tags || '').replace(/'/g, "\\'");
         return '<div class="suno-card rounded-2xl p-3.5 flex items-center justify-between hover:bg-[#181924] transition">' +
           '<div class="flex items-center space-x-3.5 overflow-hidden">' +
             '<div class="relative w-14 h-14 rounded-xl overflow-hidden shrink-0 cursor-pointer shadow-md" onclick="playClipById(' + q + clip.id + q + ')">' +
@@ -525,9 +523,6 @@ function getDashboardHTML() {
             '<button type="button" onclick="playClipById(' + q + clip.id + q + ')" class="cursor-pointer p-2.5 rounded-xl bg-orange-600/10 text-orange-400 hover:bg-orange-600 hover:text-white text-xs transition" title="Putar">' +
               '<i class="fas fa-play"></i>' +
             '</button>' +
-            '<a href="/api/v1/audio/' + clip.id + '?download=true&title=' + encodeURIComponent(clip.title || 'song') + '" class="p-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs transition" title="Download M4A Asli">' +
-              '<i class="fas fa-download"></i>' +
-            '</a>' +
           '</div>' +
         '</div>';
       }).join('');
@@ -553,28 +548,54 @@ function getDashboardHTML() {
       }).join('');
     }
 
-    // Pemutar Audio & Download Nyata (Buffer Proxy + Konversi MP3)
-    function openMiniPlayer(audioId, title, tags, cover, audioUrl) {
+    // AES DECRYPTOR & PLAYER (100% BROWSER)
+    async function openMiniPlayer(audioId, title, tags, cover, audioUrl) {
       currentActiveAudioId = audioId;
       currentActiveTitle = title || 'song';
-
       document.getElementById('mpTitle').textContent = title;
       document.getElementById('mpTags').textContent = tags;
       document.getElementById('mpCover').src = cover;
-
-      var proxyUrl = '/api/v1/audio/' + audioId;
-      var cleanTitle = encodeURIComponent(currentActiveTitle);
-
-      var dlM4A = document.getElementById('mpDownloadM4A');
-      dlM4A.href = proxyUrl + '?download=true&title=' + cleanTitle;
-      dlM4A.onclick = null;
-
-      var audio = document.getElementById('mpAudio');
-      audio.src = proxyUrl;
-      audio.load();
-
       openModal('miniPlayerModal');
-      audio.play().catch(function(e) {});
+      
+      var audio = document.getElementById('mpAudio');
+      var dlM4A = document.getElementById('mpDownloadM4A');
+      var btnMP3 = document.getElementById('btnConvertMP3');
+      
+      audio.src = ''; 
+      dlM4A.href = '#'; 
+      dlM4A.removeAttribute('download'); 
+      btnMP3.disabled = true;
+      
+      showToast('PROSES', 'Membuka gembok AES audio...', 'info');
+      
+      try {
+        var keyRes = await fetch('/api/v1/keys/' + audioId);
+        var keyData = await keyRes.json();
+        
+        if (!keyData || !keyData.key) throw new Error("Kunci AES tidak ditemukan");
+
+        var audioRes = await fetch(keyData.audioUrl);
+        var encBuffer = await audioRes.arrayBuffer();
+        
+        var keyBytes = Uint8Array.from(atob(keyData.key), c => c.charCodeAt(0));
+        var ivBytes = Uint8Array.from(atob(keyData.iv), c => c.charCodeAt(0));
+        
+        var cryptoKey = await crypto.subtle.importKey("raw", keyBytes, {name: "AES-CTR"}, false, ["decrypt"]);
+        var decBuffer = await crypto.subtle.decrypt({name: "AES-CTR", counter: ivBytes, length: 128}, cryptoKey, encBuffer);
+        
+        var blob = new Blob([decBuffer], {type: "audio/mp4"});
+        currentActiveDirectUrl = URL.createObjectURL(blob);
+        
+        audio.src = currentActiveDirectUrl;
+        dlM4A.href = currentActiveDirectUrl;
+        dlM4A.setAttribute('download', currentActiveTitle + '.m4a');
+        btnMP3.disabled = false;
+        
+        showToast('BERHASIL', 'Gembok AES terbuka! Audio siap diputar.', 'success');
+        audio.play().catch(function(e) {});
+      } catch (err) {
+        showToast('ERROR', 'Gagal membuka gembok AES', 'error');
+      }
     }
 
     function closeMiniPlayer() {
@@ -583,17 +604,17 @@ function getDashboardHTML() {
       closeModal('miniPlayerModal');
     }
 
-    // KONVERSI KE MP3 MURNI 320 KBPS MENGGUNAKAN BUFFER SERVER YANG UTUH
+    // KONVERSI KE MP3 MURNI 320 KBPS DI BROWSER DARI DATA ASLI
     async function downloadAsRealMP3() {
-      if (!currentActiveAudioId) return;
+      if (!currentActiveDirectUrl) return;
       var btn = document.getElementById('btnConvertMP3');
       var originalText = btn.innerHTML;
       btn.disabled = true;
       btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>Converting...';
-      showToast('PROSES', 'Mengonversi ke MP3 murni...', 'info');
+      showToast('PROSES', 'Mengonversi ke format MP3 murni...', 'info');
 
       try {
-        var response = await fetch('/api/v1/audio/' + currentActiveAudioId);
+        var response = await fetch(currentActiveDirectUrl);
         var arrayBuffer = await response.arrayBuffer();
 
         var audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -636,9 +657,9 @@ function getDashboardHTML() {
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
 
-        showToast('BERHASIL', 'File MP3 murni berhasil diunduh!', 'success');
+        showToast('BERHASIL', 'File MP3 murni siap diputar!', 'success');
       } catch (err) {
-        showToast('ERROR', 'Gagal memproses MP3: ' + err.message, 'error');
+        showToast('ERROR', 'Gagal konversi MP3', 'error');
       } finally {
         btn.disabled = false;
         btn.innerHTML = originalText;
@@ -722,7 +743,7 @@ function getDashboardHTML() {
         if (res.success) {
           showToast('PROSES', 'Lagu sedang diproduksi oleh Suno AI...', 'info');
         } else {
-          showToast('GAGAL', res.error, 'error');
+          showToast('DITOLAK SUNO', res.error, 'error');
         }
       });
     });
@@ -781,7 +802,6 @@ function getDashboardHTML() {
 
     function refreshAll() { socket.emit('refresh:all', {}); }
 
-    // NOTIFIKASI RAMPING ELEGAN PAS DI TENGAH ATAS
     function showToast(title, message, type) {
       var c = document.getElementById('toastContainer');
       var toast = document.createElement('div');
