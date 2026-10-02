@@ -236,7 +236,7 @@ async function generateSongAPI(session, options, accountId) {
 }
 
 // ==========================================
-// 3. MESIN STREAMING & DOWNLOAD AUDIO NYATA
+// 3. MESIN STREAMING & DOWNLOAD AUDIO NYATA (BUFFER & CORS LENGKAP)
 // ==========================================
 app.get('/api/v1/audio/:audioId', async (req, res) => {
   const { audioId } = req.params;
@@ -246,28 +246,23 @@ app.get('/api/v1/audio/:audioId', async (req, res) => {
     const streamUrl = `https://d2lwuy8qc234o3.cloudfront.net/1/clip/${audioId}.m4a`;
     const safeTitle = (title || 'suno_song').replace(/[^a-zA-Z0-9_\-\s]/g, '').trim();
 
-    const reqHeaders = {};
-    if (req.headers.range) {
-      reqHeaders['Range'] = req.headers.range;
-    }
-
     const audioRes = await axios({
       method: 'GET',
       url: streamUrl,
-      responseType: 'stream',
-      headers: reqHeaders,
-      timeout: 45000,
-      validateStatus: (status) => status >= 200 && status < 400
+      responseType: 'arraybuffer',
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+      },
+      timeout: 45000
     });
 
-    res.status(audioRes.status);
-    if (audioRes.headers['content-range']) {
-      res.setHeader('Content-Range', audioRes.headers['content-range']);
-    }
-    if (audioRes.headers['content-length']) {
-      res.setHeader('Content-Length', audioRes.headers['content-length']);
-    }
+    const buffer = Buffer.from(audioRes.data);
+
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', '*');
     res.setHeader('Content-Type', 'audio/mp4');
+    res.setHeader('Content-Length', buffer.length);
     res.setHeader('Accept-Ranges', 'bytes');
 
     if (download === 'true') {
@@ -276,8 +271,9 @@ app.get('/api/v1/audio/:audioId', async (req, res) => {
       res.setHeader('Content-Disposition', 'inline');
     }
 
-    return audioRes.data.pipe(res);
+    return res.end(buffer);
   } catch (err) {
+    res.setHeader('Access-Control-Allow-Origin', '*');
     res.status(404).send('Audio sedang diproses atau tidak ditemukan');
   }
 });
