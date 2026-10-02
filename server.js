@@ -104,8 +104,9 @@ function getAxiosConfig(session, useProxy = true) {
     headers: {
       'Content-Type': 'application/json',
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-      'Accept': 'application/json, text/plain, */*',
+      'Accept': '*/*',
       'Accept-Language': 'en-US,en;q=0.9',
+      'Accept-Encoding': 'gzip, deflate, br',
       'Origin': 'https://suno.com',
       'Referer': 'https://suno.com/',
       'sec-ch-ua': '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"',
@@ -113,9 +114,10 @@ function getAxiosConfig(session, useProxy = true) {
       'sec-ch-ua-platform': '"Windows"',
       'sec-fetch-dest': 'empty',
       'sec-fetch-mode': 'cors',
-      'sec-fetch-site': 'same-site'
+      'sec-fetch-site': 'same-site',
+      'Priority': 'u=1, i'
     },
-    timeout: 45000
+    timeout: 60000
   };
 
   if (session && session.bearerToken) {
@@ -229,7 +231,7 @@ async function generateSongAPI(session, options, accountId) {
 }
 
 // ==========================================
-// 3. MESIN STREAMING AUDIO (AUDIOPIPE)
+// 3. MESIN STREAMING AUDIO (AUDIOPIPE + PROXY)
 // ==========================================
 app.get('/api/v1/audio/:audioId', async (req, res) => {
   const { audioId } = req.params;
@@ -244,24 +246,18 @@ app.get('/api/v1/audio/:audioId', async (req, res) => {
     const streamUrl = `https://audiopipe.suno.ai/?item_id=${audioId}`;
     const safeTitle = (title || 'suno_song').replace(/[^a-zA-Z0-9_\-\s]/g, '').trim();
 
-    const reqHeaders = {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-      'Referer': 'https://suno.com/',
-      'Cookie': session.cookies
-    };
+    // GUNAKAN PROXY BRIGHT DATA AGAR TIDAK DIBLOKIR CLOUDFLARE
+    const config = getAxiosConfig(session, true);
+    config.method = 'GET';
+    config.url = streamUrl;
+    config.responseType = 'stream';
+    config.validateStatus = (status) => status === 200 || status === 206;
 
     if (req.headers.range) {
-      reqHeaders['Range'] = req.headers.range;
+      config.headers['Range'] = req.headers.range;
     }
 
-    const audioRes = await axios({
-      method: 'GET',
-      url: streamUrl,
-      responseType: 'stream',
-      headers: reqHeaders,
-      timeout: 45000,
-      validateStatus: (status) => status === 200 || status === 206
-    });
+    const audioRes = await axios(config);
 
     res.status(audioRes.status);
     if (audioRes.headers['content-range']) res.setHeader('Content-Range', audioRes.headers['content-range']);
@@ -279,7 +275,7 @@ app.get('/api/v1/audio/:audioId', async (req, res) => {
 
     return audioRes.data.pipe(res);
   } catch (err) {
-    res.status(404).send('Audio sedang diproses atau tidak ditemukan');
+    res.status(404).send('Audio sedang diproses atau diblokir Cloudflare');
   }
 });
 
