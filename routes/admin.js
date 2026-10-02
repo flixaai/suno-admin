@@ -688,18 +688,17 @@ function getDashboardHTML() {
     function showToast(title, message, type) {
       var c = document.getElementById('toastContainer');
       var toast = document.createElement('div');
-      var bgBorder = (type === 'success') ? 'bg-[#121c16]/95 border-emerald-500/50 text-emerald-300' 
-        : (type === 'error') ? 'bg-[#211214]/95 border-red-500/50 text-red-300' 
-        : 'bg-[#1e1713]/95 border-orange-500/50 text-orange-300';
+      var bgBorder = (type === 'success') ? 'bg-[#121c16]/95 border-emerald-500/40 text-emerald-300' 
+        : (type === 'error') ? 'bg-[#211214]/95 border-red-500/40 text-red-300' 
+        : 'bg-[#1e1713]/95 border-orange-500/40 text-orange-300';
       
-      toast.className = 'p-3.5 rounded-2xl shadow-2xl border text-xs w-full text-center backdrop-blur-md transition-all ' + bgBorder;
-      toast.style.pointerEvents = 'auto';
-      toast.innerHTML = '<div class="font-black text-sm uppercase tracking-wide">' + title + '</div><div class="mt-1 text-zinc-300">' + message + '</div>';
+      toast.className = 'pointer-events-auto px-4 py-2 rounded-full shadow-2xl border text-[11px] max-w-xs text-center backdrop-blur-md transition-all flex items-center justify-center space-x-1.5 ' + bgBorder;
+      toast.innerHTML = '<span class="font-bold uppercase tracking-wider text-[10px]">' + title + ':</span><span class="text-zinc-300 truncate">' + message + '</span>';
       c.appendChild(toast);
       setTimeout(function() { 
         toast.style.opacity = '0';
         setTimeout(function() { toast.remove(); }, 300);
-      }, 5000);
+      }, 4000);
     }
   </script>
 </body>
