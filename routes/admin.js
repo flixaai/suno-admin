@@ -548,8 +548,8 @@ function getDashboardHTML() {
       }).join('');
     }
 
-    // AES DECRYPTOR & PLAYER (100% BROWSER)
-    async function openMiniPlayer(audioId, title, tags, cover, audioUrl) {
+    // PEMUTAR AUDIO & DOWNLOAD (JALUR AUDIOPIPE LANGSUNG)
+    function openMiniPlayer(audioId, title, tags, cover, audioUrl) {
       currentActiveAudioId = audioId;
       currentActiveTitle = title || 'song';
       document.getElementById('mpTitle').textContent = title;
@@ -561,41 +561,17 @@ function getDashboardHTML() {
       var dlM4A = document.getElementById('mpDownloadM4A');
       var btnMP3 = document.getElementById('btnConvertMP3');
       
-      audio.src = ''; 
-      dlM4A.href = '#'; 
-      dlM4A.removeAttribute('download'); 
-      btnMP3.disabled = true;
+      // Arahkan langsung ke proxy Audiopipe di server kita
+      currentActiveDirectUrl = '/api/v1/audio/' + audioId;
+      var cleanTitle = encodeURIComponent(currentActiveTitle);
       
-      showToast('PROSES', 'Membuka gembok AES audio...', 'info');
+      audio.src = currentActiveDirectUrl;
+      dlM4A.href = currentActiveDirectUrl + '?download=true&format=m4a&title=' + cleanTitle;
+      dlM4A.setAttribute('download', currentActiveTitle + '.m4a');
+      btnMP3.disabled = false;
       
-      try {
-        var keyRes = await fetch('/api/v1/keys/' + audioId);
-        var keyData = await keyRes.json();
-        
-        if (!keyData || !keyData.key) throw new Error("Kunci AES tidak ditemukan");
-
-        var audioRes = await fetch(keyData.audioUrl);
-        var encBuffer = await audioRes.arrayBuffer();
-        
-        var keyBytes = Uint8Array.from(atob(keyData.key), c => c.charCodeAt(0));
-        var ivBytes = Uint8Array.from(atob(keyData.iv), c => c.charCodeAt(0));
-        
-        var cryptoKey = await crypto.subtle.importKey("raw", keyBytes, {name: "AES-CTR"}, false, ["decrypt"]);
-        var decBuffer = await crypto.subtle.decrypt({name: "AES-CTR", counter: ivBytes, length: 128}, cryptoKey, encBuffer);
-        
-        var blob = new Blob([decBuffer], {type: "audio/mp4"});
-        currentActiveDirectUrl = URL.createObjectURL(blob);
-        
-        audio.src = currentActiveDirectUrl;
-        dlM4A.href = currentActiveDirectUrl;
-        dlM4A.setAttribute('download', currentActiveTitle + '.m4a');
-        btnMP3.disabled = false;
-        
-        showToast('BERHASIL', 'Gembok AES terbuka! Audio siap diputar.', 'success');
-        audio.play().catch(function(e) {});
-      } catch (err) {
-        showToast('ERROR', 'Gagal membuka gembok AES', 'error');
-      }
+      audio.load();
+      audio.play().catch(function(e) {});
     }
 
     function closeMiniPlayer() {
